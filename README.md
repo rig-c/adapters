@@ -1,6 +1,6 @@
 # rig-c adapters
 
-Game-engine adapters for rig-c: a rig that rig-c built, playing inside the engine your
+Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
 
 > **Status: planned, not started.** Work begins once the toolchain (rig-c, @rig-c/parts,
@@ -24,10 +24,17 @@ is already the source, and Spine is one export of it.
 
 ## Scope, in order
 
-1. **Web engines first.** The adapter wraps @rig-c/play's core poser and draws through
-   the engine's own renderer. Candidates: PixiJS, Phaser, Three.js. The first is picked
-   by measurement before any code: how many games use each, and how much of the engine
-   the adapter has to touch (display object, ticker, texture and mesh API).
+1. **On the web first.** The adapter wraps @rig-c/play's core poser and draws through
+   the host's own renderer. The candidates are not all engines, and that matters for
+   what an adapter must bring:
+   - **Phaser**: a 2D game engine (scenes, input, physics, audio, loader).
+   - **PixiJS**: a 2D renderer; games and engines are built on top of it.
+   - **Three.js**: a 3D renderer, not a game engine. It would be for 2D characters
+     inside 3D scenes and interactive pages.
+
+   The first is picked by measurement before any code: how many games use each, and how
+   much of the host the adapter has to touch (display object, ticker, texture and mesh
+   API).
 2. **Native engines later** (Godot, Unity, …). These need the poser in the engine's
    language, so they come after the web adapters prove the model document is enough.
 
