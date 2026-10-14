@@ -4,7 +4,7 @@ Adapters for rig-c: a rig that rig-c built, playing inside the engine or rendere
 game already uses.
 
 > **Status: pilot, not published.** A PixiJS adapter is being built against
-> `@rig-c/play` 1.10 as the first host (issues #1–#3). The toolchain is still
+> `@rig-c/play` 1.10 as the first host (issues #2–#4). The toolchain is still
 > moving, so nothing is published and the API here is not stable. `AGENTS.md`
 > says how work is done in this repository.
 
