@@ -9,7 +9,7 @@ import {
   getLivePageTextureCount,
   PixiRig,
   type PixiRigResourceCounts,
-} from './index.ts';
+} from '@rig-c/pixi';
 
 export interface RigAdaptersDemoState {
   rigName: string;

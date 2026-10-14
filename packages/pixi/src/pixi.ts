@@ -1,3 +1,4 @@
+import { clamp01 } from '@rig-c/adapters-shared';
 import {
   type BlendMode,
   type BoneAdjust,
@@ -54,11 +55,6 @@ export type PixiColorMatrix = [
   number, number, number, number, number,
 ];
 
-function clamp01(value: number): number {
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
 
 /**
  * Maps a `PosedSlot.tint` tuple (`[r, g, b, a]` in `0..1`) to PixiJS

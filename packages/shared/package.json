@@ -1,0 +1,17 @@
+{
+  "name": "@rig-c/adapters-shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./parity": "./tests/pixelDiff.ts",
+    "./fixtures": "./src/fixtures.ts"
+  },
+  "peerDependencies": {
+    "@rig-c/play": "^1.10.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

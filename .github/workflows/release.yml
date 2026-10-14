@@ -1,0 +1,81 @@
+name: release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_packages:
+        description: 'Owner bootstrap/retry only: JSON array of released workspace paths'
+        type: string
+        required: true
+        default: '[]'
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.release.outputs.paths_released }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+  plan:
+    needs: release-please
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.release-please.result == 'success' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - id: plan
+        env:
+          RELEASE_PATHS: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_packages || needs.release-please.outputs.paths || '[]' }}
+        run: |
+          plan=$(bun scripts/release-plan.mjs "$RELEASE_PATHS")
+          echo "packages=$plan" >> "$GITHUB_OUTPUT"
+          echo "Publication plan: $plan"
+      - if: vars.ADAPTERS_PUBLISH_ENABLED != 'true'
+        run: echo 'PUBLISH_DISABLED — prepared only. Owner must complete first publish and enable ADAPTERS_PUBLISH_ENABLED.'
+  publish:
+    needs: plan
+    if: needs.plan.outputs.packages != '[]' && vars.ADAPTERS_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - name: Require publication credentials
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || { echo 'PUBLISH_CREDENTIALS: NPM_TOKEN is required for enabled publication' >&2; exit 1; }
+      - run: bun install --frozen-lockfile
+      - run: bun run build:libraries
+      - run: bun run check:packages
+      - name: Publish released package with provenance
+        env:
+          ADAPTERS_PUBLISH_ENABLED: ${{ vars.ADAPTERS_PUBLISH_ENABLED }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_PATH: ${{ matrix.package.path }}
+        run: bun scripts/release-plan.mjs "$(jq -nc --arg path "$PACKAGE_PATH" '[$path]')" --execute

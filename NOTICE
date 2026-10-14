@@ -1,0 +1,5 @@
+rig-c adapters are MIT licensed. @rig-c/pixi requires PixiJS and @rig-c/play
+as peer dependencies. It reads rig-c model documents and links no Spine runtime.
+The private @rig-c/adapters-shared workspace is bundled into host libraries and
+is not published. See LICENSE for this repository's licence and each dependency's
+licence for its own terms.

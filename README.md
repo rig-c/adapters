@@ -3,10 +3,55 @@
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
 
-> **Status: pilot, not published.** A PixiJS adapter is being built against
-> `@rig-c/play` 1.10 as the first host (issues #2–#4). The toolchain is still
-> moving, so nothing is published and the API here is not stable. `AGENTS.md`
-> says how work is done in this repository.
+**Status: publication prepared; first npm publish remains the owner's action.**
+
+| Package | Status |
+| --- | --- |
+| `@rig-c/pixi` | 0.1.0 prepared, PixiJS 8 adapter; 0.x API |
+| `@rig-c/phaser` | Planned |
+| `@rig-c/three` | Planned |
+| Native engine bridges | Planned |
+
+Each host is independently versioned in `packages/<host>`. The private shared
+workspace is bundled into host libraries and is never published. One manifest
+release pipeline discovers every host; no engine is added merely by listing it.
+
+## PixiJS usage
+
+After the owner confirms the first version is available on npm:
+
+```sh
+npm install @rig-c/pixi pixi.js @rig-c/play
+```
+
+```ts
+import { loadModel } from '@rig-c/play';
+import { Application } from 'pixi.js';
+import { PixiRig } from '@rig-c/pixi';
+
+const app = new Application();
+await app.init({ width: 800, height: 600 });
+document.body.appendChild(app.canvas);
+const assets = await loadModel({ modelUrl: '/rigs/walk/skeleton.model.json' });
+const rig = new PixiRig(assets, { ticker: app.ticker });
+rig.play('walk');
+app.stage.addChild(rig);
+// On removal: app.stage.removeChild(rig); rig.destroy();
+```
+
+The model document and image pages come from `rigc build`, unmodified. Choose an
+animation name present in the model. `PixiRig` is a Pixi Container and owns its
+player/renderer resources; `PixiRenderer` is available when you own the player.
+Both `@rig-c/pixi` and `@rig-c/pixi/pixi` provide the same typed public exports.
+
+`bun install`, `bun run dev` runs the root demo; `bun run verify` builds every
+public library, checks tarballs/release discovery and installed smoke, then runs
+the existing chromium + webkit parity suite. Public fixture recipes are built by
+root `scripts/fetch-assets.sh` and shared comparison helpers live in
+`packages/shared`. See [adding a host](docs/ADDING_A_HOST.md) for workspace/release
+steps and the exact owner-only first-publish commands. Publication is initially
+disabled; enabled publication with missing credentials fails by name.
+
 
 ## Why this exists
 

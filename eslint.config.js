@@ -2,7 +2,7 @@ import tseslint from 'typescript-eslint';
 
 export default [
   {
-    ignores: ['node_modules/**', 'dist/**', 'public/**'],
+    ignores: ['**/node_modules/**', '**/dist/**', 'public/**'],
   },
   {
     files: ['**/*.ts'],
