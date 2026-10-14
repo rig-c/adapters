@@ -3,8 +3,10 @@
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
 
-> **Status: planned, not started.** Work begins once the toolchain (rig-c, @rig-c/parts,
-> @rig-c/pose, @rig-c/play) is stable. Nothing here is published yet.
+> **Status: pilot, not published.** A PixiJS adapter is being built against
+> `@rig-c/play` 1.10 as the first host (issues #1–#3). The toolchain is still
+> moving, so nothing is published and the API here is not stable. `AGENTS.md`
+> says how work is done in this repository.
 
 ## Why this exists
 
@@ -32,9 +34,9 @@ is already the source, and Spine is one export of it.
    - **Three.js**: a 3D renderer, not a game engine. It would be for 2D characters
      inside 3D scenes and interactive pages.
 
-   The first is picked by measurement before any code: how many games use each, and how
-   much of the host the adapter has to touch (display object, ticker, texture and mesh
-   API).
+   **PixiJS is first** (decided 2026-10-15): it is a renderer, so the adapter touches
+   the smallest surface (display object, ticker, texture, mesh), and Phaser is built
+   on it, so the Phaser adapter is the next step rather than a second start.
 2. **Native engines later** (Godot, Unity, …). These need the poser in the engine's
    language, so they come after the web adapters prove the model document is enough.
 
