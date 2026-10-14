@@ -846,7 +846,7 @@ export class PixiRenderer {
     const pageImage = this.assets.pageImages.get(slot.page);
     if (!pageImage) {
       throw new Error(
-        `PixiRenderer: slot "${slotName}" references page "${pageName}", which is missing from assets.pageImages (expected HTMLImageElement for "${pageName}")`,
+        `PixiRenderer: slot "${slotName}" references page "${pageName}", which is missing from pageImages [PLANTED_CI_FAILURE] (expected HTMLImageElement for "${pageName}")`,
       );
     }
 
