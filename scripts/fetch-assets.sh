@@ -4,7 +4,7 @@
 # produce at test time, and nothing fetched that is licence-bound:
 #
 # - rigc's gallery rigs (`walk`, `flex`, `ride`) from the pinned rig-c tag;
-# - @rig-c/play's test rigs (`figure`, `glow`, `duo`) from the pinned play tag.
+# - @rig-c/play's test rigs (`figure`, `glow`, `duo`, `turned`) from the pinned play tag.
 #
 # Each build lands in `public/rigs/<name>/` with `skeleton.model.json`, the
 # pair `rigc build` writes beside it (`skeleton.json` + `skeleton.atlas`), and
@@ -14,7 +14,7 @@ set -euo pipefail
 RIGC_TAG="v2.52.0"
 PLAY_TAG="v1.10.0"
 GALLERY_RIGS="walk flex ride"
-TEST_RIGS="figure glow duo"
+TEST_RIGS="figure glow duo turned"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RIGS_DEST="$ROOT/public/rigs"
@@ -97,7 +97,12 @@ if [ -n "$MISSING_GALLERY" ] || [ -n "$MISSING_TEST" ]; then
       | tar -xz -C "$SRC/play" --strip-components=1 "play-${PLAY_TAG#v}/tests/rigs"
     for rig in $MISSING_TEST; do
       echo "building test rig $rig"
-      build_rig "$SRC/play/tests/rigs/$rig" "$RIGS_DEST/$rig"
+      if [ "$rig" = "turned" ]; then
+        build_rig "$SRC/play/tests/rigs/turned" "$RIGS_DEST/turned" --atlas-in art/turned.atlas
+        rm -f "$RIGS_DEST/turned/art/turned.atlas"
+      else
+        build_rig "$SRC/play/tests/rigs/$rig" "$RIGS_DEST/$rig"
+      fi
     done
   fi
 fi

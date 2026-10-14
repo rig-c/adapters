@@ -8,14 +8,16 @@ import {
   type PosedSlot,
   RigPlayer,
 } from '@rig-c/play';
-import { Container, Sprite, WebGLRenderer } from 'pixi.js';
+import { Container, Mesh, type MeshGeometry, Sprite, WebGLRenderer } from 'pixi.js';
 
 import {
   BLEND_PIXI,
   PixiRenderer,
+  readMeshScreenVertices,
   readSpriteScreenCorners,
   tintToPixi,
   worldToScreenCorners,
+  worldToScreenVertices,
 } from '../src/index.ts';
 
 const STAGE_BG = '#14161a';
@@ -58,31 +60,55 @@ export interface SlotInventory {
   animation: string;
   totalSlots: number;
   regionSlots: string[];
-  meshSlots: Array<{ slot: string; page: string }>;
+  meshSlots: Array<{ slot: string; page: string; vertices: number; triangles: number }>;
+  clippedSlots: string[];
+  darkSlots: string[];
 }
 
-/**
- * Inspects a rig's unfiltered `PosedFrame` at `time` through `RigPlayer` and
- * partitions its drawn slots by `kind`.
- */
-async function inspectRigSlots(rigName: string, time: number): Promise<SlotInventory> {
-  const assets = await getAssets(rigName);
+function poseAt(
+  assets: ModelAssets,
+  time: number,
+  animationName?: string,
+): { animation: string; frame: PosedFrame } {
   const dummy = document.createElement('div');
   const player = new RigPlayer(dummy, assets);
-  const animation = assets.animations[0].name;
+  const animation = animationName ?? assets.animations[0].name;
   player.play(animation);
   player.seek(time);
   const frame = player.posedFrame();
   player.dispose();
+  return { animation, frame };
+}
+
+/**
+ * Inspects a rig's unfiltered `PosedFrame` at `time` through `RigPlayer`.
+ */
+async function inspectRigSlots(
+  rigName: string,
+  time: number,
+  animationName?: string,
+): Promise<SlotInventory> {
+  const assets = await getAssets(rigName);
+  const { animation, frame } = poseAt(assets, time, animationName);
 
   const regionSlots: string[] = [];
-  const meshSlots: Array<{ slot: string; page: string }> = [];
+  const meshSlots: Array<{ slot: string; page: string; vertices: number; triangles: number }> = [];
+  const clippedSlots: string[] = [];
+  const darkSlots: string[] = [];
+
   for (const slot of frame.order) {
     if (slot.kind === 'region') {
       regionSlots.push(slot.slot);
     } else {
-      meshSlots.push({ slot: slot.slot, page: slot.page });
+      meshSlots.push({
+        slot: slot.slot,
+        page: slot.page,
+        vertices: slot.vertices.length / 2,
+        triangles: slot.triangles.length / 3,
+      });
     }
+    if (slot.clip !== undefined) clippedSlots.push(slot.slot);
+    if (slot.dark !== undefined) darkSlots.push(slot.slot);
   }
   return {
     rigName,
@@ -90,60 +116,16 @@ async function inspectRigSlots(rigName: string, time: number): Promise<SlotInven
     totalSlots: frame.order.length,
     regionSlots,
     meshSlots,
-  };
-}
-
-/**
- * Obtains a region-only `PosedFrame` at `time` using `@rig-c/play`'s
- * `RigPlayer.posedFrame(SlotFilter)` API.
- */
-async function regionFrameAt(
-  assets: ModelAssets,
-  time: number,
-): Promise<{
-  animation: string;
-  unfilteredFrame: PosedFrame;
-  regionFrame: PosedFrame;
-  regionSlotNames: string[];
-  meshSlotEntries: Array<{ slot: string; page: string }>;
-}> {
-  const dummy = document.createElement('div');
-  const player = new RigPlayer(dummy, assets);
-  const animation = assets.animations[0].name;
-  player.play(animation);
-  player.seek(time);
-  const unfilteredFrame = player.posedFrame();
-
-  const regionSet = new Set<string>();
-  const meshSlotEntries: Array<{ slot: string; page: string }> = [];
-  for (const s of unfilteredFrame.order) {
-    if (s.kind === 'region') {
-      regionSet.add(s.slot);
-    } else {
-      meshSlotEntries.push({ slot: s.slot, page: s.page });
-    }
-  }
-
-  // Use RigPlayer's public SlotFilter parameter when mesh slots exist on the rig.
-  const regionFrame =
-    meshSlotEntries.length > 0
-      ? player.posedFrame((slotName: string) => regionSet.has(slotName))
-      : unfilteredFrame;
-  player.dispose();
-
-  return {
-    animation,
-    unfilteredFrame,
-    regionFrame,
-    regionSlotNames: [...regionSet],
-    meshSlotEntries,
+    clippedSlots,
+    darkSlots,
   };
 }
 
 export interface GeometryProbeOptions {
   rigName: string;
+  animation?: string;
   time: number;
-  mutant?: 'none' | 'swap-order' | 'shift-corner';
+  mutant?: 'none' | 'swap-order' | 'shift-corner' | 'shift-mesh-vertex';
 }
 
 export interface GeometryProbeResult {
@@ -152,21 +134,25 @@ export interface GeometryProbeResult {
   time: number;
   childrenCount: number;
   orderCount: number;
+  regionCount: number;
+  meshCount: number;
+  meshVertexCount: number;
   orderMatches: boolean;
   childLabels: string[];
   orderNames: string[];
   maxCornerDeltaPx: number;
+  maxMeshDeltaF32Px: number;
+  maxMeshDeltaF64Px: number;
+  maxMeshF32QuantizationPx: number;
+  maxMeshBeyondF32QuantizationPx: number;
   perSlotMaxDeltaPx: Record<string, number>;
-  unfilteredMeshCount: number;
-  unfilteredRefusalMessage: string | null;
+  rootMasked: boolean;
+  maskedChildSlots: string[];
 }
 
 async function geometryProbe(options: GeometryProbeOptions): Promise<GeometryProbeResult> {
   const assets = await getAssets(options.rigName);
-  const { animation, unfilteredFrame, regionFrame, meshSlotEntries } = await regionFrameAt(
-    assets,
-    options.time,
-  );
+  const { animation, frame } = poseAt(assets, options.time, options.animation);
 
   const stage = new Container();
   const root = new Container();
@@ -176,49 +162,96 @@ async function geometryProbe(options: GeometryProbeOptions): Promise<GeometryPro
   root.getGlobalTransform(root.worldTransform, false);
 
   const pixiRenderer = new PixiRenderer(root, assets);
+  pixiRenderer.render(frame);
 
-  let unfilteredRefusalMessage: string | null = null;
-  if (meshSlotEntries.length > 0) {
-    try {
-      pixiRenderer.render(unfilteredFrame);
-    } catch (err) {
-      unfilteredRefusalMessage = err instanceof Error ? err.message : String(err);
+  if (options.mutant === 'swap-order' && root.children.length >= 2) {
+    const regionIndices: number[] = [];
+    for (let i = 0; i < root.children.length; i++) {
+      if (root.children[i] instanceof Sprite) regionIndices.push(i);
+    }
+    if (regionIndices.length >= 2) {
+      root.swapChildren(root.children[regionIndices[0]], root.children[regionIndices[1]]);
+    } else {
+      root.swapChildren(root.children[0], root.children[1]);
+    }
+  } else if (options.mutant === 'shift-corner') {
+    const firstRegionIdx = frame.order.findIndex((s) => s.kind === 'region');
+    if (firstRegionIdx >= 0) {
+      const sprite = root.children[firstRegionIdx] as Sprite;
+      sprite.x += 1e-3;
+      sprite.getGlobalTransform(sprite.worldTransform, false);
+    }
+  } else if (options.mutant === 'shift-mesh-vertex') {
+    const firstMeshIdx = frame.order.findIndex((s) => s.kind === 'mesh');
+    if (firstMeshIdx >= 0) {
+      const mesh = root.children[firstMeshIdx] as Mesh<MeshGeometry>;
+      mesh.geometry.positions[0] += 1e-3;
     }
   }
 
-  pixiRenderer.render(regionFrame);
-
-  if (options.mutant === 'swap-order' && root.children.length >= 2) {
-    root.swapChildren(root.children[0], root.children[1]);
-  } else if (options.mutant === 'shift-corner' && root.children.length >= 1) {
-    const first = root.children[0] as Sprite;
-    first.x += 1e-3;
-    first.getGlobalTransform(first.worldTransform, false);
-  }
-
   const childLabels = root.children.map((c) => c.label);
-  const orderNames = regionFrame.order.map((s) => s.slot);
+  const orderNames = frame.order.map((s) => s.slot);
   const orderMatches =
     childLabels.length === orderNames.length &&
     childLabels.every((label, i) => label === orderNames[i]);
 
   let maxCornerDeltaPx = 0;
+  let maxMeshDeltaF32Px = 0;
+  let maxMeshDeltaF64Px = 0;
+  let maxMeshF32QuantizationPx = 0;
+  let maxMeshBeyondF32QuantizationPx = 0;
+  let regionCount = 0;
+  let meshCount = 0;
+  let meshVertexCount = 0;
   const perSlotMaxDeltaPx: Record<string, number> = {};
+  const maskedChildSlots: string[] = [];
 
-  const count = Math.min(root.children.length, regionFrame.order.length);
+  const count = Math.min(root.children.length, frame.order.length);
   for (let i = 0; i < count; i++) {
-    const sprite = root.children[i] as Sprite;
-    const slot = regionFrame.order[i] as PosedRegion;
-    const actual = readSpriteScreenCorners(sprite);
-    const expected = worldToScreenCorners(slot.corners, root);
-    let slotMax = 0;
-    for (let k = 0; k < 8; k++) {
-      const delta = Math.abs(actual[k] - expected[k]);
-      if (delta > slotMax) slotMax = delta;
-      if (delta > maxCornerDeltaPx) maxCornerDeltaPx = delta;
+    const child = root.children[i];
+    const slot = frame.order[i];
+    if (child.mask) {
+      maskedChildSlots.push(slot.slot);
     }
-    perSlotMaxDeltaPx[slot.slot] = slotMax;
+    if (slot.kind === 'region') {
+      regionCount++;
+      if (!(child instanceof Sprite)) continue;
+      const actual = readSpriteScreenCorners(child);
+      const expected = worldToScreenCorners(slot.corners, root);
+      let slotMax = 0;
+      for (let k = 0; k < 8; k++) {
+        const delta = Math.abs(actual[k] - expected[k]);
+        if (delta > slotMax) slotMax = delta;
+        if (delta > maxCornerDeltaPx) maxCornerDeltaPx = delta;
+      }
+      perSlotMaxDeltaPx[slot.slot] = slotMax;
+    } else {
+      meshCount++;
+      meshVertexCount += slot.vertices.length / 2;
+      if (!(child instanceof Mesh)) continue;
+      const mesh = child as Mesh<MeshGeometry>;
+      const actual = readMeshScreenVertices(mesh);
+      const expectedF32 = worldToScreenVertices(slot.vertices, root, true);
+      const expectedF64 = worldToScreenVertices(slot.vertices, root, false);
+      let slotMaxF32 = 0;
+      for (let k = 0; k < actual.length; k++) {
+        const deltaF32 = Math.abs(actual[k] - expectedF32[k]);
+        const deltaF64 = Math.abs(actual[k] - expectedF64[k]);
+        const quant = Math.abs(expectedF64[k] - expectedF32[k]);
+        const beyondQuant = Math.abs(deltaF64 - quant);
+        if (deltaF32 > slotMaxF32) slotMaxF32 = deltaF32;
+        if (deltaF32 > maxMeshDeltaF32Px) maxMeshDeltaF32Px = deltaF32;
+        if (deltaF64 > maxMeshDeltaF64Px) maxMeshDeltaF64Px = deltaF64;
+        if (quant > maxMeshF32QuantizationPx) maxMeshF32QuantizationPx = quant;
+        if (beyondQuant > maxMeshBeyondF32QuantizationPx) {
+          maxMeshBeyondF32QuantizationPx = beyondQuant;
+        }
+      }
+      perSlotMaxDeltaPx[slot.slot] = slotMaxF32;
+    }
   }
+
+  const rootMasked = Boolean(root.mask);
 
   pixiRenderer.dispose();
   stage.destroy({ children: true });
@@ -229,13 +262,20 @@ async function geometryProbe(options: GeometryProbeOptions): Promise<GeometryPro
     time: options.time,
     childrenCount: childLabels.length,
     orderCount: orderNames.length,
+    regionCount,
+    meshCount,
+    meshVertexCount,
     orderMatches,
     childLabels,
     orderNames,
     maxCornerDeltaPx,
+    maxMeshDeltaF32Px,
+    maxMeshDeltaF64Px,
+    maxMeshF32QuantizationPx,
+    maxMeshBeyondF32QuantizationPx,
     perSlotMaxDeltaPx,
-    unfilteredMeshCount: meshSlotEntries.length,
-    unfilteredRefusalMessage,
+    rootMasked,
+    maskedChildSlots,
   };
 }
 
@@ -244,19 +284,28 @@ export type PictureMutant =
   | 'drop-slot'
   | 'swap-order'
   | 'additive-as-normal'
-  | 'drop-tint';
+  | 'drop-tint'
+  | 'reverse-triangles'
+  | 'ignore-clip'
+  | 'drop-dark';
 
 export interface PictureCaptureOptions {
   rigName: string;
+  animation?: string;
   time: number;
+  sampleTimes?: readonly number[];
+  pad?: number;
   mutant?: PictureMutant;
 }
 
 export interface SlotVisualState {
   slot: string;
+  kind: 'region' | 'mesh';
   blend: string;
   pixiBlendMode: string;
   tint: [number, number, number, number];
+  dark?: [number, number, number];
+  hasDarkFilter: boolean;
   pixiTintHex: number;
   pixiAlpha: number;
   expectedTintHex: number;
@@ -275,7 +324,10 @@ export interface PictureCaptureResult {
   slotStates: SlotVisualState[];
 }
 
-function computeRegionBounds(frames: PosedFrame[]): {
+function computeFrameBounds(
+  frames: PosedFrame[],
+  pad = PAD,
+): {
   left: number;
   bottomWorld: number;
   width: number;
@@ -289,11 +341,10 @@ function computeRegionBounds(frames: PosedFrame[]): {
 
   for (const frame of frames) {
     for (const slot of frame.order) {
-      if (slot.kind !== 'region') continue;
-      const c = slot.corners;
-      for (let k = 0; k < 8; k += 2) {
-        const wx = c[k];
-        const wy = c[k + 1];
+      const coords = slot.kind === 'region' ? slot.corners : slot.vertices;
+      for (let k = 0; k < coords.length; k += 2) {
+        const wx = coords[k];
+        const wy = coords[k + 1];
         if (wx < minX) minX = wx;
         if (wx > maxX) maxX = wx;
         if (wy < minY) minY = wy;
@@ -302,10 +353,10 @@ function computeRegionBounds(frames: PosedFrame[]): {
     }
   }
 
-  const left = Math.floor(minX) - PAD;
-  const right = Math.ceil(maxX) + PAD;
-  const bottomWorld = Math.floor(minY) - PAD;
-  const topWorld = Math.ceil(maxY) + PAD;
+  const left = Math.floor(minX) - pad;
+  const right = Math.ceil(maxX) + pad;
+  const bottomWorld = Math.floor(minY) - pad;
+  const topWorld = Math.ceil(maxY) + pad;
   return {
     left,
     bottomWorld,
@@ -327,11 +378,88 @@ function compositeOnBackdrop(sourceCanvas: HTMLCanvasElement, width: number, hei
   return out.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 
+function mutateFrame(frame: PosedFrame, mutant: PictureMutant): PosedFrame {
+  if (mutant === 'none') return frame;
+  if (mutant === 'drop-slot') {
+    const dropIdx = frame.order.length > 1 ? Math.floor(frame.order.length / 2) : 0;
+    return {
+      order: frame.order.filter((_, i) => i !== dropIdx),
+    };
+  }
+  if (mutant === 'swap-order') {
+    const copy = [...frame.order];
+    if (copy.length >= 3) {
+      const a = 1;
+      const b = copy.length - 1;
+      const tmp = copy[a];
+      copy[a] = copy[b];
+      copy[b] = tmp;
+    } else if (copy.length === 2) {
+      const tmp = copy[0];
+      copy[0] = copy[1];
+      copy[1] = tmp;
+    }
+    return { order: copy };
+  }
+  if (mutant === 'additive-as-normal') {
+    return {
+      order: frame.order.map((slot) =>
+        slot.blend === 'Additive' ? { ...slot, blend: 'Normal' } : slot,
+      ),
+    };
+  }
+  if (mutant === 'drop-tint') {
+    return {
+      order: frame.order.map((slot) => ({
+        ...slot,
+        tint: [1, 1, 1, 1] as [number, number, number, number],
+      })),
+    };
+  }
+  if (mutant === 'reverse-triangles') {
+    return {
+      order: frame.order.map((slot) => {
+        if (slot.kind !== 'mesh') return slot;
+        const vCount = slot.vertices.length / 2;
+        return {
+          ...slot,
+          triangles: slot.triangles.map((idx) => vCount - 1 - idx),
+        };
+      }),
+    };
+  }
+  if (mutant === 'ignore-clip') {
+    return {
+      order: frame.order.map((slot) => {
+        if (slot.clip === undefined) return slot;
+        const copy = { ...slot };
+        delete copy.clip;
+        return copy;
+      }),
+    };
+  }
+  if (mutant === 'drop-dark') {
+    return {
+      order: frame.order.map((slot) => {
+        if (slot.dark === undefined) return slot;
+        const copy = { ...slot };
+        delete copy.dark;
+        return copy;
+      }),
+    };
+  }
+  return frame;
+}
+
 async function pictureCaptureProbe(options: PictureCaptureOptions): Promise<PictureCaptureResult> {
   const assets = await getAssets(options.rigName);
-  const samples = await Promise.all([0, 0.5, 1.2].map((t) => regionFrameAt(assets, t)));
-  const bounds = computeRegionBounds(samples.map((s) => s.regionFrame));
-  const { animation, regionFrame } = await regionFrameAt(assets, options.time);
+  const sampleTimes = options.sampleTimes ?? [0, 0.5, 1.2];
+  const samples = sampleTimes.map((t) => poseAt(assets, t, options.animation));
+  const bounds = computeFrameBounds(
+    samples.map((s) => s.frame),
+    options.pad ?? PAD,
+  );
+  const { animation, frame } = poseAt(assets, options.time, options.animation);
 
   // 1. Reference picture from @rig-c/play's CanvasRenderer (WebGL).
   const refRoot = document.createElement('div');
@@ -344,54 +472,17 @@ async function pictureCaptureProbe(options: PictureCaptureOptions): Promise<Pict
     width: bounds.width,
     height: bounds.height,
   };
-  canvasRenderer.render(regionFrame);
+  canvasRenderer.render(frame);
   const canvasBackendActive = canvasRenderer.backendActive;
   const canvasPngBase64 = compositeOnBackdrop(canvasRenderer.canvas, bounds.width, bounds.height);
   canvasRenderer.dispose();
 
   // 2. PixiRenderer picture on the same pose (or mutated pose for mutant controls).
-  let pixiFrame: PosedFrame = regionFrame;
-  const mutant = options.mutant ?? 'none';
-  if (mutant === 'drop-slot') {
-    // Drop the non-backdrop foreground slot with the largest area (avoid dropping index 0 if it is the background plate).
-    const dropIdx = regionFrame.order.length > 1 ? Math.floor(regionFrame.order.length / 2) : 0;
-    pixiFrame = {
-      order: regionFrame.order.filter((_, i) => i !== dropIdx),
-    };
-  } else if (mutant === 'swap-order') {
-    // Swap the first foreground slot with the last foreground slot so occlusion changes visibly.
-    const copy = [...regionFrame.order];
-    if (copy.length >= 3) {
-      const a = 1;
-      const b = copy.length - 1;
-      const tmp = copy[a];
-      copy[a] = copy[b];
-      copy[b] = tmp;
-    } else if (copy.length === 2) {
-      const tmp = copy[0];
-      copy[0] = copy[1];
-      copy[1] = tmp;
-    }
-    pixiFrame = { order: copy };
-  } else if (mutant === 'additive-as-normal') {
-    pixiFrame = {
-      order: regionFrame.order.map((slot) =>
-        slot.blend === 'Additive' ? { ...slot, blend: 'Normal' } : slot,
-      ),
-    };
-  } else if (mutant === 'drop-tint') {
-    pixiFrame = {
-      order: regionFrame.order.map((slot) => ({
-        ...slot,
-        tint: [1, 1, 1, 1] as [number, number, number, number],
-      })),
-    };
-  }
+  const pixiFrame = mutateFrame(frame, options.mutant ?? 'none');
 
   const gl = await getPixiGl(bounds.width, bounds.height);
   const stage = new Container();
   const pixiRoot = new Container();
-  // Map root local (worldX, -worldY) so world (left, topWorld) lands at canvas (0, 0).
   pixiRoot.position.set(-bounds.left, bounds.topWorld);
   stage.addChild(pixiRoot);
 
@@ -400,17 +491,22 @@ async function pictureCaptureProbe(options: PictureCaptureOptions): Promise<Pict
   gl.render({ container: stage });
 
   const slotStates: SlotVisualState[] = pixiFrame.order.map((slot, i) => {
-    const sprite = pixiRoot.children[i] as Sprite;
+    const view = pixiRoot.children[i] as Sprite | Mesh<MeshGeometry>;
     const expected = tintToPixi(slot.tint);
+    const hasDarkFilter = Boolean(view.filters && view.filters.length > 0);
+    const effectiveBlend = hasDarkFilter ? view.filters![0].blendMode : view.blendMode;
     return {
       slot: slot.slot,
+      kind: slot.kind,
       blend: slot.blend,
-      pixiBlendMode: sprite.blendMode,
+      pixiBlendMode: effectiveBlend,
       tint: [...slot.tint] as [number, number, number, number],
-      pixiTintHex: sprite.tint,
-      pixiAlpha: sprite.alpha,
-      expectedTintHex: expected.color,
-      expectedAlpha: expected.alpha,
+      ...(slot.dark ? { dark: [...slot.dark] as [number, number, number] } : {}),
+      hasDarkFilter,
+      pixiTintHex: view.tint,
+      pixiAlpha: view.alpha,
+      expectedTintHex: hasDarkFilter ? 0xffffff : expected.color,
+      expectedAlpha: hasDarkFilter ? 1 : expected.alpha,
     };
   });
 
@@ -436,6 +532,338 @@ async function pictureCaptureProbe(options: PictureCaptureOptions): Promise<Pict
   };
 }
 
+export interface IdentityProbeOptions {
+  rigName: string;
+  animation?: string;
+  times: readonly number[];
+  mutant?: 'none' | 'always-reupload' | 'clone-arrays';
+}
+
+export interface IdentityProbeResult {
+  rigName: string;
+  animation: string;
+  meshSlotCount: number;
+  uvsIdenticalAcrossFrames: boolean;
+  trianglesIdenticalAcrossFrames: boolean;
+  uploadsPerFrame: Array<{
+    time: number;
+    uvUploadCount: number;
+    triangleUploadCount: number;
+    geometryUploadCount: number;
+    meshGeometryCount: number;
+  }>;
+}
+
+async function identityProbe(options: IdentityProbeOptions): Promise<IdentityProbeResult> {
+  const assets = await getAssets(options.rigName);
+  const dummy = document.createElement('div');
+  const player = new RigPlayer(dummy, assets);
+  const animation = options.animation ?? assets.animations[0].name;
+  player.play(animation);
+
+  const stage = new Container();
+  const root = new Container();
+  stage.addChild(root);
+
+  const renderer = new PixiRenderer(root, assets);
+  if (options.mutant === 'always-reupload') {
+    renderer.alwaysReuploadGeometry = true;
+  }
+
+  let firstFrameMeshes: Map<
+    string,
+    { uvs: readonly number[]; triangles: readonly number[] }
+  > | null = null;
+  let uvsIdenticalAcrossFrames = true;
+  let trianglesIdenticalAcrossFrames = true;
+  let meshSlotCount = 0;
+
+  const uploadsPerFrame: IdentityProbeResult['uploadsPerFrame'] = [];
+
+  for (const time of options.times) {
+    player.seek(time);
+    let frame = player.posedFrame();
+    const meshes = frame.order.filter((s): s is PosedMesh => s.kind === 'mesh');
+    meshSlotCount = meshes.length;
+
+    if (!firstFrameMeshes) {
+      firstFrameMeshes = new Map(
+        meshes.map((m) => [m.slot, { uvs: m.uvs, triangles: m.triangles }]),
+      );
+    } else {
+      for (const m of meshes) {
+        const ref = firstFrameMeshes.get(m.slot);
+        if (ref) {
+          if (m.uvs !== ref.uvs) uvsIdenticalAcrossFrames = false;
+          if (m.triangles !== ref.triangles) trianglesIdenticalAcrossFrames = false;
+        }
+      }
+    }
+
+    if (options.mutant === 'clone-arrays') {
+      frame = {
+        order: frame.order.map((slot) =>
+          slot.kind === 'mesh'
+            ? { ...slot, uvs: [...slot.uvs], triangles: [...slot.triangles] }
+            : slot,
+        ),
+      };
+    }
+
+    renderer.render(frame);
+    uploadsPerFrame.push({
+      time,
+      uvUploadCount: renderer.uvUploadCount,
+      triangleUploadCount: renderer.triangleUploadCount,
+      geometryUploadCount: renderer.geometryUploadCount,
+      meshGeometryCount: renderer.meshGeometryCount,
+    });
+  }
+
+  player.dispose();
+  renderer.dispose();
+  stage.destroy({ children: true });
+
+  return {
+    rigName: options.rigName,
+    animation,
+    meshSlotCount,
+    uvsIdenticalAcrossFrames,
+    trianglesIdenticalAcrossFrames,
+    uploadsPerFrame,
+  };
+}
+
+// --- Lossless PNG encoder for building premultiplied (`pma: true`) twin pages ---
+
+const PNG_CRC = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function pngCrc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = PNG_CRC[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngAdler32(bytes: Uint8Array): number {
+  let a = 1;
+  let b = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    a = (a + bytes[i]) % 65521;
+    b = (b + a) % 65521;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const out = new Uint8Array(12 + data.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  view.setUint32(8 + data.length, pngCrc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+function encodePng(pixels: Uint8ClampedArray, width: number, height: number): Uint8Array {
+  const stride = 1 + width * 4;
+  const raw = new Uint8Array(height * stride);
+  for (let y = 0; y < height; y++) {
+    raw.set(pixels.subarray(y * width * 4, (y + 1) * width * 4), y * stride + 1);
+  }
+  const blocks = Math.max(1, Math.ceil(raw.length / 65535));
+  const zlib = new Uint8Array(2 + blocks * 5 + raw.length + 4);
+  zlib[0] = 0x78;
+  zlib[1] = 0x01;
+  let at = 2;
+  for (let block = 0; block < blocks; block++) {
+    const start = block * 65535;
+    const length = Math.min(65535, raw.length - start);
+    zlib[at++] = block === blocks - 1 ? 1 : 0;
+    zlib[at++] = length & 0xff;
+    zlib[at++] = (length >> 8) & 0xff;
+    zlib[at++] = ~length & 0xff;
+    zlib[at++] = (~length >> 8) & 0xff;
+    zlib.set(raw.subarray(start, start + length), at);
+    at += length;
+  }
+  new DataView(zlib.buffer).setUint32(at, pngAdler32(raw));
+  const ihdr = new Uint8Array(13);
+  const header = new DataView(ihdr.buffer);
+  header.setUint32(0, width);
+  header.setUint32(4, height);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const parts = [
+    new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib),
+    pngChunk('IEND', new Uint8Array(0)),
+  ];
+  const png = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    png.set(part, offset);
+    offset += part.length;
+  }
+  return png;
+}
+
+async function makePremultipliedTwinImage(page: HTMLImageElement): Promise<{
+  image: HTMLImageElement;
+  url: string;
+}> {
+  const width = page.naturalWidth || page.width;
+  const height = page.naturalHeight || page.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('2d context unavailable');
+  ctx.drawImage(page, 0, 0);
+  const src = ctx.getImageData(0, 0, width, height).data;
+  const out = new Uint8ClampedArray(src.length);
+  for (let i = 0; i < src.length; i += 4) {
+    const a = src[i + 3];
+    out[i] = Math.round((src[i] * a) / 255);
+    out[i + 1] = Math.round((src[i + 1] * a) / 255);
+    out[i + 2] = Math.round((src[i + 2] * a) / 255);
+    out[i + 3] = a;
+  }
+  const pngBytes = encodePng(out, width, height);
+  const url = URL.createObjectURL(new Blob([pngBytes.buffer as ArrayBuffer], { type: 'image/png' }));
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  return { image: img, url };
+}
+
+const cachedPmaPages = new Map<string, Promise<Map<string, HTMLImageElement>>>();
+
+function getPmaTwinPages(rigName: string, assets: ModelAssets): Promise<Map<string, HTMLImageElement>> {
+  let promise = cachedPmaPages.get(rigName);
+  if (!promise) {
+    promise = (async () => {
+      const map = new Map<string, HTMLImageElement>();
+      for (const [name, img] of assets.pageImages.entries()) {
+        const twin = await makePremultipliedTwinImage(img);
+        map.set(name, twin.image);
+      }
+      return map;
+    })();
+    cachedPmaPages.set(rigName, promise);
+  }
+  return promise;
+}
+
+export interface PmaProbeOptions {
+  rigName: string;
+  animation?: string;
+  time: number;
+  pma: boolean;
+  /** When true, passes `pma: false` on slots while feeding the premultiplied twin images (the double-premultiply mutant). */
+  mutantIgnorePmaFlag?: boolean;
+}
+
+export interface PmaProbeResult {
+  rigName: string;
+  animation: string;
+  time: number;
+  pma: boolean;
+  alphaModes: Record<string, string>;
+  additiveSlots: string[];
+  canvasPngBase64: string;
+  pixiPngBase64: string;
+}
+
+async function pmaProbe(options: PmaProbeOptions): Promise<PmaProbeResult> {
+  const baseAssets = await getAssets(options.rigName);
+  const pmaPages = options.pma ? await getPmaTwinPages(options.rigName, baseAssets) : baseAssets.pageImages;
+  const assets: ModelAssets = {
+    ...baseAssets,
+    pageImages: pmaPages,
+  };
+
+  const samples = [0, 0.5, 1.2].map((t) => poseAt(baseAssets, t, options.animation));
+  const bounds = computeFrameBounds(samples.map((s) => s.frame));
+  const { animation, frame: baseFrame } = poseAt(baseAssets, options.time, options.animation);
+
+  const refFrame: PosedFrame = {
+    order: baseFrame.order.map((slot) => ({ ...slot, pma: options.pma })),
+  };
+  const pixiFrame: PosedFrame = {
+    order: baseFrame.order.map((slot) => ({
+      ...slot,
+      pma: options.mutantIgnorePmaFlag ? false : options.pma,
+    })),
+  };
+
+  // 1. CanvasRenderer reference on the same page set (`pma` or `straight`).
+  const refRoot = document.createElement('div');
+  const canvasRenderer = new CanvasRenderer(refRoot, pmaPages);
+  canvasRenderer.pixelRatio = 1;
+  canvasRenderer.backend = 'webgl';
+  canvasRenderer.viewport = {
+    x: bounds.left,
+    y: bounds.bottomWorld,
+    width: bounds.width,
+    height: bounds.height,
+  };
+  canvasRenderer.render(refFrame);
+  const canvasPngBase64 = compositeOnBackdrop(canvasRenderer.canvas, bounds.width, bounds.height);
+  canvasRenderer.dispose();
+
+  // 2. PixiRenderer on `pixiFrame`.
+  const gl = await getPixiGl(bounds.width, bounds.height);
+  const stage = new Container();
+  const pixiRoot = new Container();
+  pixiRoot.position.set(-bounds.left, bounds.topWorld);
+  stage.addChild(pixiRoot);
+
+  const pixiRenderer = new PixiRenderer(pixiRoot, assets);
+  pixiRenderer.render(pixiFrame);
+  gl.render({ container: stage });
+
+  const alphaModes: Record<string, string> = {};
+  const additiveSlots: string[] = [];
+  for (const slot of pixiFrame.order) {
+    const src = pixiRenderer.getPageSource(slot.page);
+    if (src) {
+      alphaModes[slot.page] = src.alphaMode;
+    }
+    if (slot.blend === 'Additive') {
+      additiveSlots.push(slot.slot);
+    }
+  }
+
+  const pixiPngBase64 = compositeOnBackdrop(
+    gl.canvas as HTMLCanvasElement,
+    bounds.width,
+    bounds.height,
+  );
+
+  pixiRenderer.dispose();
+  stage.destroy({ children: true });
+
+  return {
+    rigName: options.rigName,
+    animation,
+    time: options.time,
+    pma: options.pma,
+    alphaModes,
+    additiveSlots,
+    canvasPngBase64,
+    pixiPngBase64,
+  };
+}
+
 export interface RefusalCaseResult {
   name: string;
   threw: boolean;
@@ -445,12 +873,10 @@ export interface RefusalCaseResult {
 
 async function refusalProbe(): Promise<RefusalCaseResult[]> {
   const walkAssets = await getAssets('walk');
-  const flexAssets = await getAssets('flex');
-  const glowAssets = await getAssets('glow');
+  const figureAssets = await getAssets('figure');
 
-  const walkSample = await regionFrameAt(walkAssets, 0.5);
-  const flexSample = await regionFrameAt(flexAssets, 0.5);
-  const glowSample = await regionFrameAt(glowAssets, 0.5);
+  const walkSample = poseAt(walkAssets, 0.5);
+  const figureSample = poseAt(figureAssets, 0.5, 'walk');
 
   const results: RefusalCaseResult[] = [];
 
@@ -479,91 +905,143 @@ async function refusalProbe(): Promise<RefusalCaseResult[]> {
     results.push({ name, threw, message, childrenAfterThrow });
   };
 
+  const baseRegion = walkSample.frame.order[3] as PosedRegion;
+  const baseMesh = figureSample.frame.order.find((s): s is PosedMesh => s.kind === 'mesh')!;
+
   // Case 1: missing page in assets.pageImages
   {
-    const targetSlot = walkSample.regionFrame.order[3] as PosedRegion; // e.g. torso/leg
     const pagesCopy = new Map(walkAssets.pageImages);
-    pagesCopy.delete(targetSlot.page);
+    pagesCopy.delete(baseRegion.page);
     const brokenAssets: ModelAssets = {
       ...walkAssets,
       pageImages: pagesCopy,
     };
-    runCase('missing-page', brokenAssets, walkSample.regionFrame);
+    runCase('missing-page', brokenAssets, walkSample.frame);
   }
 
-  // Case 2: real unfiltered `flex` frame containing mesh slots (`flag_a`, etc.)
-  runCase('real-flex-mesh', flexAssets, flexSample.unfilteredFrame, flexSample.regionFrame);
-
-  // Case 3: real unfiltered `glow` frame containing mesh slots (`flame`, `core`)
-  runCase('real-glow-mesh', glowAssets, glowSample.unfilteredFrame, glowSample.regionFrame);
-
-  // Case 4: synthetic mesh slot injected into a region frame
+  // Case 2: clip polygon with fewer than 3 vertices (< 6 coordinates)
   {
-    const baseSlot = walkSample.regionFrame.order[0] as PosedRegion;
-    const meshSlot: PosedMesh = {
-      slot: 'synthetic_cloth',
-      kind: 'mesh',
-      z: 1,
-      page: baseSlot.page,
-      pma: false,
-      vertices: [0, 0, 10, 0, 10, 10],
-      uvs: [0, 0, 1, 0, 1, 1],
-      triangles: [0, 1, 2],
-      sequence: 0,
-      tint: [1, 1, 1, 1],
-      blend: 'Normal',
-    };
-    runCase('synthetic-mesh', walkAssets, {
-      order: [baseSlot, meshSlot],
-    });
-  }
-
-  // Case 5: slot carrying a `clip` polygon (unsupported in region-only renderer)
-  {
-    const baseSlot = walkSample.regionFrame.order[0] as PosedRegion;
-    const clippedSlot: PosedSlot = {
-      ...baseSlot,
-      slot: 'clipped_visor',
+    const badClipSlot: PosedSlot = {
+      ...baseRegion,
+      slot: 'clip_too_short_slot',
       clip: {
-        polygon: [0, 0, 100, 0, 100, 100],
+        polygon: [0, 0, 100, 0],
         inverse: false,
         convex: true,
       },
     };
-    runCase('unsupported-clip', walkAssets, { order: [clippedSlot] });
+    runCase('clip-too-short', walkAssets, { order: [badClipSlot] }, walkSample.frame);
   }
 
-  // Case 6: slot carrying `dark` tint (unsupported in region-only renderer)
+  // Case 3: self-crossing (bowtie) clip polygon refused by clipShapeOf
   {
-    const baseSlot = walkSample.regionFrame.order[0] as PosedRegion;
-    const darkSlot: PosedSlot = {
-      ...baseSlot,
-      slot: 'dark_tinted_head',
-      dark: [0.2, 0.3, 0.4],
+    const crossingClipSlot: PosedSlot = {
+      ...baseRegion,
+      slot: 'clip_bowtie_slot',
+      clip: {
+        polygon: [0, 0, 100, 100, 100, 0, 0, 100],
+        inverse: false,
+        convex: false,
+      },
     };
-    runCase('unsupported-dark', walkAssets, { order: [darkSlot] });
+    runCase('clip-self-crossing', walkAssets, { order: [crossingClipSlot] }, walkSample.frame);
   }
 
-  // Case 7: slot with `pma: true` (unsupported in region-only renderer)
+  // Case 4: collinear clip polygon (every vertex on one line)
   {
-    const baseSlot = walkSample.regionFrame.order[0] as PosedRegion;
-    const pmaSlot: PosedSlot = {
-      ...baseSlot,
-      slot: 'pma_region_slot',
-      pma: true,
+    const collinearClipSlot: PosedSlot = {
+      ...baseRegion,
+      slot: 'clip_collinear_slot',
+      clip: {
+        polygon: [0, 0, 50, 50, 100, 100],
+        inverse: false,
+        convex: true,
+      },
     };
-    runCase('unsupported-pma', walkAssets, { order: [pmaSlot] });
+    runCase('clip-collinear', walkAssets, { order: [collinearClipSlot] }, walkSample.frame);
   }
 
-  // Case 8: slot with unknown blend mode
+  // Case 5: repeated-vertex non-convex clip polygon
   {
-    const baseSlot = walkSample.regionFrame.order[0] as PosedRegion;
+    const repeatedClipSlot: PosedSlot = {
+      ...baseRegion,
+      slot: 'clip_repeated_vertex_slot',
+      clip: {
+        polygon: [0, 0, 100, 0, 50, 50, 100, 0, 0, 100],
+        inverse: false,
+        convex: false,
+      },
+    };
+    runCase('clip-repeated-vertices', walkAssets, { order: [repeatedClipSlot] }, walkSample.frame);
+  }
+
+  // Case 5b: concave (dart/L-shape) clip polygon marked convex: true
+  {
+    const nonConvexMarkedConvexSlot: PosedSlot = {
+      ...baseRegion,
+      slot: 'clip_nonconvex_marked_convex_slot',
+      clip: {
+        polygon: [0, 0, 100, 0, 30, 30, 0, 100],
+        inverse: false,
+        convex: true,
+      },
+    };
+    runCase(
+      'clip-nonconvex-marked-convex',
+      walkAssets,
+      { order: [nonConvexMarkedConvexSlot] },
+      walkSample.frame,
+    );
+  }
+
+  // Case 6: mesh slot with out-of-range triangle index
+  {
+    const badTriMesh: PosedMesh = {
+      ...baseMesh,
+      slot: 'broken_mesh_tris',
+      triangles: [0, 1, 9999],
+    };
+    runCase('mesh-bad-triangles', figureAssets, { order: [badTriMesh] }, figureSample.frame);
+  }
+
+  // Case 7: mesh slot with mismatched uvs length
+  {
+    const badUvMesh: PosedMesh = {
+      ...baseMesh,
+      slot: 'broken_mesh_uvs',
+      uvs: [0, 0, 1, 0],
+    };
+    runCase('mesh-uv-mismatch', figureAssets, { order: [badUvMesh] });
+  }
+
+  // Case 8: slot with malformed dark tint
+  {
+    const badDarkSlot: PosedSlot = {
+      ...baseRegion,
+      slot: 'bad_dark_slot',
+      dark: [0.2, Number.NaN, 0.4],
+    };
+    runCase('invalid-dark', walkAssets, { order: [badDarkSlot] });
+  }
+
+  // Case 9: slot with unknown blend mode
+  {
     const badBlendSlot = {
-      ...baseSlot,
+      ...baseRegion,
       slot: 'bad_blend_slot',
       blend: 'Subtract' as unknown as PosedRegion['blend'],
     };
     runCase('invalid-blend', walkAssets, { order: [badBlendSlot] });
+  }
+
+  // Case 10: slot with unknown kind
+  {
+    const badKindSlot = {
+      ...baseRegion,
+      slot: 'bad_kind_slot',
+      kind: 'point' as unknown as PosedRegion['kind'],
+    };
+    runCase('invalid-kind', walkAssets, { order: [badKindSlot] });
   }
 
   return results;
@@ -574,6 +1052,8 @@ const harness = {
   inspectRigSlots,
   geometryProbe,
   pictureCaptureProbe,
+  identityProbe,
+  pmaProbe,
   refusalProbe,
 };
 
