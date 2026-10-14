@@ -1,16 +1,28 @@
-import type {
-  BlendMode,
-  ModelAssets,
-  PosedClip,
-  PosedFrame,
-  PosedMesh,
-  PosedRegion,
-  PosedSlot,
+import {
+  type BlendMode,
+  type BoneAdjust,
+  type BoneWorld,
+  type ModelAssets,
+  type PlayOptions,
+  type PoseBounds,
+  type PosedClip,
+  type PosedFrame,
+  type PosedMesh,
+  type PosedRegion,
+  type PosedSlot,
+  type QueueOptions,
+  type RigComplete,
+  type RigEnvironment,
+  type RigEvent,
+  RigPlayer,
+  type SlotFilter,
+  type TrackEntry,
 } from '@rig-c/play';
 import {
   type BLEND_MODES,
   ColorMatrixFilter,
-  type Container,
+  Container,
+  type DestroyOptions,
   Graphics,
   ImageSource,
   Matrix,
@@ -19,6 +31,7 @@ import {
   Rectangle,
   Sprite,
   Texture,
+  Ticker,
 } from 'pixi.js';
 
 /**
@@ -341,6 +354,54 @@ interface RegionSlotEntry {
   darkFilter: ColorMatrixFilter | null;
 }
 
+interface SharedPageSourceEntry {
+  source: ImageSource;
+  pma: boolean;
+  holders: Set<PixiRenderer>;
+}
+
+const sharedPageSources = new WeakMap<HTMLImageElement, SharedPageSourceEntry>();
+const livePageSources = new Set<ImageSource>();
+
+/**
+ * Returns the number of live shared page `ImageSource` textures currently held
+ * across all active `PixiRenderer` / `PixiRig` instances.
+ */
+export function getLivePageTextureCount(): number {
+  return livePageSources.size;
+}
+
+/**
+ * Returns the number of active `PixiRenderer` / `PixiRig` instances currently
+ * retaining the shared `ImageSource` for `pageImage`.
+ */
+export function getPageRefCount(pageImage: HTMLImageElement): number {
+  return sharedPageSources.get(pageImage)?.holders.size ?? 0;
+}
+
+/**
+ * Returns the shared `ImageSource` currently allocated for `pageImage`, or
+ * `undefined` if no active renderer retains `pageImage`.
+ */
+export function getSharedPageSource(pageImage: HTMLImageElement): ImageSource | undefined {
+  return sharedPageSources.get(pageImage)?.source;
+}
+
+/**
+ * Per-instance display object and texture resource counts owned by a
+ * `PixiRenderer` / `PixiRig`.
+ */
+export interface PixiRigResourceCounts {
+  sprites: number;
+  meshes: number;
+  geometries: number;
+  masks: number;
+  filters: number;
+  textureViews: number;
+  retainedPages: number;
+  livePageTextures: number;
+}
+
 /**
  * Renders a `@rig-c/play` `PosedFrame` — region slots (`kind: 'region'`), mesh
  * slots (`kind: 'mesh'`), clipping polygons (`clip`), two-colour tints (`dark`),
@@ -352,6 +413,10 @@ interface RegionSlotEntry {
  * (`x` right, `y` up) map into `root`'s local coordinate space as
  * `(worldX, -worldY)`, matching `@rig-c/play`'s `CanvasRenderer` and
  * `DomRenderer`.
+ *
+ * Page `ImageSource` textures are reference-counted per `HTMLImageElement` across
+ * `PixiRenderer` instances so several `PixiRig`s over one `ModelAssets` load share
+ * the same GPU page textures and only the last `dispose()` / `destroy()` frees them.
  */
 export class PixiRenderer {
   /** Number of mesh UV buffer allocations/uploads performed across `render()` calls. */
@@ -360,15 +425,24 @@ export class PixiRenderer {
   triangleUploadCount = 0;
   /** Total mesh UV + triangle index buffer uploads (`uvUploadCount + triangleUploadCount`). */
   geometryUploadCount = 0;
+  /** Number of mesh vertex position buffer allocations/uploads performed across `render()` calls. */
+  positionUploadCount = 0;
   /** Number of `MeshGeometry` instances created by this renderer. */
   meshGeometryCount = 0;
   /**
-   * When true, forces `uvs` and `triangles` buffers to re-upload on every frame
-   * even when array references are identical (used as the Bar 3 negative control).
+   * When true, forces `positions`, `uvs`, and `triangles` buffers to re-upload
+   * on every frame even when array references or vertex coordinates are unchanged
+   * (used as the negative control for static / `timescale = 0` geometry reuse).
    */
   alwaysReuploadGeometry = false;
+  /**
+   * When true (default), `dispose()` decrements and destroys shared page
+   * `ImageSource`s when the last holder is disposed. Setting to `false` serves
+   * as the negative control for Bar 3's page texture unload check.
+   */
+  releasePageSourcesOnDispose = true;
 
-  private readonly sources = new Map<HTMLImageElement, { source: ImageSource; pma: boolean }>();
+  private readonly retainedPages = new Set<HTMLImageElement>();
   private readonly regionTextures = new Map<string, Texture>();
   private readonly pageTextures = new Map<string, Texture>();
   private readonly regionPool = new Map<string, RegionSlotEntry>();
@@ -382,6 +456,65 @@ export class PixiRenderer {
     public readonly root: Container,
     private readonly assets: ModelAssets,
   ) {}
+
+  /** Number of pooled `Sprite` instances currently owned by this renderer. */
+  get spriteCount(): number {
+    return this.regionPool.size;
+  }
+
+  /** Number of pooled `Mesh` instances currently owned by this renderer. */
+  get meshCount(): number {
+    return this.meshPool.size;
+  }
+
+  /** Number of pooled `Graphics` mask instances currently owned by this renderer. */
+  get maskCount(): number {
+    return (this.rootMask ? 1 : 0) + this.maskPool.length;
+  }
+
+  /** Number of `ColorMatrixFilter` instances currently owned by this renderer. */
+  get filterCount(): number {
+    let count = 0;
+    for (const entry of this.regionPool.values()) {
+      if (entry.darkFilter) count++;
+    }
+    for (const entry of this.meshPool.values()) {
+      if (entry.darkFilter) count++;
+    }
+    return count;
+  }
+
+  /** Number of lightweight `Texture` views (`regionTextures + pageTextures`) owned by this renderer. */
+  get textureViewCount(): number {
+    return this.regionTextures.size + this.pageTextures.size;
+  }
+
+  /** Number of page `HTMLImageElement`s currently retained by this renderer. */
+  get retainedPageCount(): number {
+    return this.retainedPages.size;
+  }
+
+  /** Whether `dispose()` has been called on this renderer. */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
+  /**
+   * Returns a snapshot of the display objects, geometries, texture views, and
+   * shared page textures currently owned or retained by this renderer.
+   */
+  resourceCounts(): PixiRigResourceCounts {
+    return {
+      sprites: this.spriteCount,
+      meshes: this.meshCount,
+      geometries: this.meshPool.size,
+      masks: this.maskCount,
+      filters: this.filterCount,
+      textureViews: this.textureViewCount,
+      retainedPages: this.retainedPageCount,
+      livePageTextures: getLivePageTextureCount(),
+    };
+  }
 
   /**
    * Draws one `PosedFrame` into `this.root`.
@@ -469,19 +602,22 @@ export class PixiRenderer {
   }
 
   /**
-   * Returns the `ImageSource` created for `pageName`, or `undefined` if that
-   * page has not been rendered yet.
+   * Returns the shared `ImageSource` retained by this renderer for `pageName`,
+   * or `undefined` if that page has not been rendered by this renderer (or after
+   * `dispose()`).
    */
   getPageSource(pageName: string): ImageSource | undefined {
     const pageImage = this.assets.pageImages.get(pageName);
-    if (!pageImage) return undefined;
-    return this.sources.get(pageImage)?.source;
+    if (!pageImage || !this.retainedPages.has(pageImage)) return undefined;
+    return sharedPageSources.get(pageImage)?.source;
   }
 
   /**
-   * Removes all display objects from `this.root` and destroys the PixiJS
-   * geometries, textures, masks, and sources created by this renderer. Does not
-   * dispose `ModelAssets`. Idempotent.
+   * Removes all display objects from `this.root`, destroys the PixiJS
+   * geometries, texture views, masks, and filters created by this renderer, and
+   * releases this renderer's hold on each shared page `ImageSource` (destroying
+   * the `ImageSource` when the last holder releases it). Does not dispose
+   * `ModelAssets`. Idempotent.
    */
   dispose(): void {
     if (this.disposed) return;
@@ -518,10 +654,17 @@ export class PixiRenderer {
       texture.destroy(false);
     }
     this.pageTextures.clear();
-    for (const { source } of this.sources.values()) {
-      source.destroy();
+    for (const pageImage of this.retainedPages) {
+      const entry = sharedPageSources.get(pageImage);
+      if (!entry) continue;
+      entry.holders.delete(this);
+      if (entry.holders.size === 0 && this.releasePageSourcesOnDispose) {
+        entry.source.destroy();
+        livePageSources.delete(entry.source);
+        sharedPageSources.delete(pageImage);
+      }
     }
-    this.sources.clear();
+    this.retainedPages.clear();
     this.validatedClips.clear();
   }
 
@@ -576,6 +719,7 @@ export class PixiRenderer {
         roundPixels: false,
       });
       this.meshGeometryCount++;
+      this.positionUploadCount++;
       this.uvUploadCount++;
       this.triangleUploadCount++;
       this.geometryUploadCount = this.uvUploadCount + this.triangleUploadCount;
@@ -590,7 +734,8 @@ export class PixiRenderer {
       };
       this.meshPool.set(poolKey, entry);
     } else {
-      // Update world positions (Y flipped to -Y in root local space).
+      // Update world positions (Y flipped to -Y in root local space) only when
+      // vertex count or float32 coordinates change.
       if (entry.positions.length !== verts.length) {
         const positions = new Float32Array(verts.length);
         for (let i = 0; i < verts.length; i += 2) {
@@ -599,13 +744,23 @@ export class PixiRenderer {
         }
         entry.positions = positions;
         entry.geometry.positions = positions;
+        this.positionUploadCount++;
       } else {
         const positions = entry.positions;
+        let changed = this.alwaysReuploadGeometry;
         for (let i = 0; i < verts.length; i += 2) {
-          positions[i] = verts[i];
-          positions[i + 1] = -verts[i + 1];
+          const x = Math.fround(verts[i]);
+          const y = Math.fround(-verts[i + 1]);
+          if (positions[i] !== x || positions[i + 1] !== y) {
+            positions[i] = x;
+            positions[i + 1] = y;
+            changed = true;
+          }
         }
-        entry.geometry.getBuffer('aPosition').update();
+        if (changed) {
+          entry.geometry.getBuffer('aPosition').update();
+          this.positionUploadCount++;
+        }
       }
 
       // Reuse UVs by array reference identity across frames.
@@ -802,24 +957,34 @@ export class PixiRenderer {
 
   private sourceFor(pageImage: HTMLImageElement, pma: boolean): ImageSource {
     const desiredAlphaMode = pma ? 'premultiplied-alpha' : 'premultiply-alpha-on-upload';
-    const existing = this.sources.get(pageImage);
-    if (existing) {
-      if (existing.pma !== pma) {
-        existing.pma = pma;
-        existing.source.alphaMode = desiredAlphaMode;
-        existing.source.update();
-      }
-      return existing.source;
+    let entry = sharedPageSources.get(pageImage);
+    if (!entry || entry.source.destroyed) {
+      const source = new ImageSource({
+        resource: pageImage,
+        alphaMode: desiredAlphaMode,
+        scaleMode: 'linear',
+        addressMode: 'clamp-to-edge',
+        autoGenerateMipmaps: false,
+      });
+      entry = {
+        source,
+        pma,
+        holders: new Set<PixiRenderer>(),
+      };
+      sharedPageSources.set(pageImage, entry);
+      livePageSources.add(source);
+    } else if (entry.pma !== pma) {
+      entry.pma = pma;
+      entry.source.alphaMode = desiredAlphaMode;
+      entry.source.update();
     }
-    const source = new ImageSource({
-      resource: pageImage,
-      alphaMode: desiredAlphaMode,
-      scaleMode: 'linear',
-      addressMode: 'clamp-to-edge',
-      autoGenerateMipmaps: false,
-    });
-    this.sources.set(pageImage, { source, pma });
-    return source;
+
+    if (!this.retainedPages.has(pageImage)) {
+      this.retainedPages.add(pageImage);
+      entry.holders.add(this);
+    }
+
+    return entry.source;
   }
 
   private pageTextureFor(pageImage: HTMLImageElement, pageName: string, pma: boolean): Texture {
@@ -887,6 +1052,421 @@ export class PixiRenderer {
 
     this.regionTextures.set(key, texture);
     return texture;
+  }
+}
+
+/**
+ * Options for constructing a `PixiRig` display object.
+ */
+export interface PixiRigOptions {
+  /** Initial skin name (defaults to `'default'`). */
+  skin?: string;
+  /** Optional initial slot filter (`only` / `hide`). */
+  slots?: SlotFilter;
+  /** Initial playback speed multiplier (`>= 0`, defaults to `1`). */
+  timeScale?: number;
+  /** Alias for `timeScale` (`>= 0`, defaults to `1`). */
+  timescale?: number;
+  /**
+   * PixiJS `Ticker` used to advance the player automatically when `autoUpdate`
+   * is enabled. Defaults to `Ticker.shared`. Pass `null` or `autoUpdate: false`
+   * to step exclusively via manual `advance(dt)` / `seek(t)`.
+   */
+  ticker?: Ticker | null;
+  /**
+   * Whether to attach to `ticker` automatically when `play()` is called.
+   * Defaults to `true` when `ticker !== null`.
+   */
+  autoUpdate?: boolean;
+}
+
+/**
+ * A PixiJS `Container` display object that owns a `@rig-c/play` `RigPlayer`,
+ * advances it from a PixiJS `Ticker` (`play`, `advance(dt)`, `seek(t)`,
+ * `timescale`), draws each posed frame through `PixiRenderer`, exposes
+ * `bone(name)` and `bounds()` identically to `@rig-c/play`, and releases all
+ * owned display objects, geometries, and reference-counted page `ImageSource`
+ * textures on `destroy()`.
+ *
+ * Several `PixiRig` instances may share a single `ModelAssets` load: each
+ * instance poses its own `RigPlayer` and owns its own `Sprite`s/`Mesh`es while
+ * sharing the underlying page `ImageSource` GPU textures until the last
+ * instance is destroyed.
+ */
+export class PixiRig extends Container {
+  readonly assets: ModelAssets;
+  readonly player: RigPlayer;
+  readonly renderer: PixiRenderer;
+
+  private ticker: Ticker | null;
+  private autoUpdate: boolean;
+  private tickerAttached = false;
+  private lastDrawnFrame: PosedFrame;
+  private rigDestroyed = false;
+
+  constructor(assets: ModelAssets, options: PixiRigOptions = {}) {
+    super();
+
+    if (
+      !assets ||
+      typeof assets !== 'object' ||
+      !assets.document ||
+      typeof assets.document !== 'object' ||
+      !(assets.pageImages instanceof Map)
+    ) {
+      throw new Error(
+        'PixiRig: invalid assets argument (expected ModelAssets with document and pageImages Map)',
+      );
+    }
+
+    const rawScale = options.timescale ?? options.timeScale;
+    if (
+      rawScale !== undefined &&
+      (typeof rawScale !== 'number' || !Number.isFinite(rawScale) || rawScale < 0)
+    ) {
+      throw new Error(
+        `PixiRig: invalid timescale=${String(rawScale)} (expected finite number >= 0)`,
+      );
+    }
+
+    this.assets = assets;
+    const host = document.createElement('div');
+    const mode = assets.regions === 'none' ? 'canvas' : 'dom';
+    this.player = new RigPlayer(host, assets, {
+      mode,
+      skin: options.skin,
+      slots: options.slots,
+    });
+    if (rawScale !== undefined) {
+      this.player.timeScale = rawScale;
+    }
+
+    this.renderer = new PixiRenderer(this, assets);
+    this.ticker = options.ticker === undefined ? Ticker.shared : options.ticker;
+    this.autoUpdate = options.autoUpdate ?? this.ticker !== null;
+
+    // Render the initial setup pose into this container immediately.
+    const initialFrame = this.player.posedFrame();
+    this.lastDrawnFrame = initialFrame;
+    this.renderer.render(initialFrame);
+
+    if (this.autoUpdate && this.ticker) {
+      this.attachTicker();
+    }
+  }
+
+  private readonly onTick = (ticker: Ticker): void => {
+    if (this.rigDestroyed) return;
+    this.advance(ticker.deltaMS / 1000);
+  };
+
+  private ensureActive(method: string): void {
+    if (this.rigDestroyed) {
+      throw new Error(`PixiRig: cannot call ${method}() on a destroyed PixiRig`);
+    }
+  }
+
+  private attachTicker(): void {
+    if (this.tickerAttached || !this.ticker || this.rigDestroyed) return;
+    this.ticker.add(this.onTick);
+    this.tickerAttached = true;
+  }
+
+  private detachTicker(): void {
+    if (!this.tickerAttached || !this.ticker) return;
+    this.ticker.remove(this.onTick);
+    this.tickerAttached = false;
+  }
+
+  /**
+   * Starts playing animation `name` (with optional `loop`, `track`, `mix`,
+   * `alpha`, `additive`), draws the initial frame of the animation immediately,
+   * and attaches to the configured `Ticker` if `autoUpdate` is enabled.
+   */
+  play(name: string, options: PlayOptions = {}): void {
+    this.ensureActive('play');
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(
+        `PixiRig: invalid animation name ${String(name)} in play(name) (expected non-empty string)`,
+      );
+    }
+    this.player.play(name, options);
+    this.draw();
+    if (this.autoUpdate && this.ticker) {
+      this.attachTicker();
+    }
+  }
+
+  /**
+   * Advances the underlying `RigPlayer` by `dt` seconds (`dt * timescale`) and
+   * draws the resulting `PosedFrame` through `this.renderer`.
+   */
+  advance(dt: number): void {
+    this.ensureActive('advance');
+    if (typeof dt !== 'number' || !Number.isFinite(dt) || dt < 0) {
+      throw new Error(
+        `PixiRig: invalid dt=${String(dt)} in advance(dt) (expected finite number >= 0)`,
+      );
+    }
+    this.player.advance(dt);
+    this.draw();
+  }
+
+  /**
+   * Seeks the current animation to `time` seconds and draws the resulting
+   * `PosedFrame` through `this.renderer`.
+   */
+  seek(time: number): void {
+    this.ensureActive('seek');
+    if (typeof time !== 'number' || !Number.isFinite(time)) {
+      throw new Error(
+        `PixiRig: invalid time=${String(time)} in seek(time) (expected finite number)`,
+      );
+    }
+    this.player.seek(time);
+    this.draw();
+  }
+
+  /**
+   * Reads the current `PosedFrame` from `this.player.posedFrame()` and renders
+   * it into `this` container via `this.renderer.render(frame)`.
+   */
+  draw(): PosedFrame {
+    this.ensureActive('draw');
+    const frame = this.player.posedFrame();
+    this.lastDrawnFrame = frame;
+    this.renderer.render(frame);
+    return frame;
+  }
+
+  /**
+   * Returns the most recently drawn `PosedFrame` record (the exact object passed
+   * to `this.renderer.render()`).
+   */
+  drawnFrame(): PosedFrame {
+    this.ensureActive('drawnFrame');
+    return this.lastDrawnFrame;
+  }
+
+  /**
+   * Delegates to `this.player.posedFrame(slots)` without modifying the pose.
+   */
+  posedFrame(slots?: SlotFilter | null): PosedFrame {
+    this.ensureActive('posedFrame');
+    if (slots === undefined) {
+      return this.player.posedFrame();
+    }
+    return this.player.posedFrame(slots);
+  }
+
+  /**
+   * Reads the world-space transform (`BoneWorld`) of bone `name`, throwing by
+   * name if `name` does not exist on the rig.
+   */
+  bone(name: string): BoneWorld {
+    this.ensureActive('bone');
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(
+        `PixiRig: invalid bone name ${String(name)} in bone(name) (expected non-empty string)`,
+      );
+    }
+    return this.player.bone(name);
+  }
+
+  /**
+   * Computes the world-space axis-aligned bounding box (`PoseBounds | null`)
+   * for the current frame and slot filter, identical to `RigPlayer.bounds()`.
+   */
+  bounds(): PoseBounds | null {
+    this.ensureActive('bounds');
+    return this.player.bounds();
+  }
+
+  /** Current playback time in seconds on track 0. */
+  get time(): number {
+    return this.player.time;
+  }
+
+  /** Currently playing animation name on track 0, or `null` if none. */
+  get current(): string | null {
+    return this.player.current;
+  }
+
+  /** Playback speed multiplier (`>= 0`). `0` holds the current frame. */
+  get timescale(): number {
+    return this.player.timeScale;
+  }
+
+  set timescale(value: number) {
+    this.ensureActive('timescale');
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `PixiRig: invalid timescale=${String(value)} (expected finite number >= 0)`,
+      );
+    }
+    this.player.timeScale = value;
+  }
+
+  /** Alias for `timescale` matching `RigPlayer.timeScale`. */
+  get timeScale(): number {
+    return this.player.timeScale;
+  }
+
+  set timeScale(value: number) {
+    this.timescale = value;
+  }
+
+  /** Active skin name, or `undefined` when no skin is set. Setting re-poses and re-draws immediately. */
+  get skin(): string | undefined {
+    return this.player.skin;
+  }
+
+  set skin(name: string | undefined) {
+    this.ensureActive('skin');
+    this.player.skin = name;
+    this.draw();
+  }
+
+  /** Active slot filter (`SlotFilter | null`). Setting re-draws immediately. */
+  get slots(): SlotFilter | null {
+    return this.player.slots;
+  }
+
+  set slots(filter: SlotFilter | null) {
+    this.ensureActive('slots');
+    this.player.slots = filter;
+    this.draw();
+  }
+
+  /** Whole-skeleton tint multiplier `[r, g, b, a]`. Setting re-draws immediately. */
+  get color(): [number, number, number, number] {
+    return this.player.color;
+  }
+
+  set color(rgba: [number, number, number, number]) {
+    this.ensureActive('color');
+    this.player.color = rgba;
+    this.draw();
+  }
+
+  /** Per-pose bone adjustment callback (`BoneAdjust | null`). Setting re-poses and re-draws immediately. */
+  get adjust(): BoneAdjust | null {
+    return this.player.adjust;
+  }
+
+  set adjust(fn: BoneAdjust | null) {
+    this.ensureActive('adjust');
+    this.player.adjust = fn;
+    this.draw();
+  }
+
+  /** Whether the underlying `RigPlayer` is on the composed multi-track mixer. */
+  get composed(): boolean {
+    this.ensureActive('composed');
+    return this.player.composed;
+  }
+
+  /** Re-runs the pose pipeline at the current state and re-draws. */
+  repose(): void {
+    this.ensureActive('repose');
+    this.player.repose();
+    this.draw();
+  }
+
+  /** Pauses playback on the underlying `RigPlayer`. */
+  pause(): void {
+    this.ensureActive('pause');
+    this.player.pause();
+  }
+
+  /** Resumes playback on the underlying `RigPlayer`. */
+  resume(): void {
+    this.ensureActive('resume');
+    this.player.resume();
+  }
+
+  /** Queues an animation on a track. */
+  queue(name: string, options?: QueueOptions): void {
+    this.ensureActive('queue');
+    this.player.queue(name, options);
+  }
+
+  /** Clears a track (or track 0 when `track` is omitted) and re-draws. */
+  clear(track?: number, options?: { mix?: number }): void {
+    this.ensureActive('clear');
+    this.player.clear(track, options);
+    this.draw();
+  }
+
+  /** Queues a track clear with optional `mix` and `delay`. */
+  queueClear(track?: number, options?: { mix?: number; delay?: number }): void {
+    this.ensureActive('queueClear');
+    this.player.queueClear(track, options);
+  }
+
+  /** Sets the alpha blend weight on `track` and re-draws. */
+  setAlpha(track: number, alpha: number): void {
+    this.ensureActive('setAlpha');
+    this.player.setAlpha(track, alpha);
+    this.draw();
+  }
+
+  /** Inspects the current track entry on `track` (defaults to `0`). */
+  entry(track?: number): TrackEntry | null {
+    this.ensureActive('entry');
+    return this.player.entry(track);
+  }
+
+  /** Sets or clears physics environment parameters (`wind`, `gravity`) and re-draws. */
+  environment(patch?: Partial<RigEnvironment> | null): RigEnvironment {
+    this.ensureActive('environment');
+    const env = this.player.environment(patch);
+    this.draw();
+    return env;
+  }
+
+  /** Notifies the rig's physics of whole-rig world translation or rotation. */
+  moved(motion: { x?: number; y?: number; rotation?: number }): void {
+    this.ensureActive('moved');
+    this.player.moved(motion);
+  }
+
+  /** Subscribes to `RigPlayer` `'event'` or `'complete'` callbacks; returns an unsubscribe function. */
+  onRigEvent(type: 'event', listener: (payload: RigEvent) => void): () => void;
+  onRigEvent(type: 'complete', listener: (payload: RigComplete) => void): () => void;
+  onRigEvent(
+    type: 'event' | 'complete',
+    listener: ((payload: RigEvent) => void) | ((payload: RigComplete) => void),
+  ): () => void {
+    this.ensureActive('onRigEvent');
+    if (type === 'event') {
+      return this.player.on('event', listener as (payload: RigEvent) => void);
+    }
+    return this.player.on('complete', listener as (payload: RigComplete) => void);
+  }
+
+  /**
+   * Returns a snapshot of the display objects, geometries, texture views, and
+   * shared page textures currently owned or retained by this `PixiRig`.
+   */
+  resourceCounts(): PixiRigResourceCounts {
+    return this.renderer.resourceCounts();
+  }
+
+  /**
+   * Detaches from `Ticker`, disposes `this.renderer` and `this.player`
+   * (releasing owned `Sprite`s, `Mesh`es, `MeshGeometry`s, `Graphics` masks,
+   * `ColorMatrixFilter`s, `Texture` views, and decrementing shared page
+   * `ImageSource` reference counts), and destroys this PixiJS `Container`.
+   * Idempotent.
+   */
+  override destroy(options?: DestroyOptions): void {
+    if (this.rigDestroyed) return;
+    this.rigDestroyed = true;
+    this.detachTicker();
+    this.renderer.dispose();
+    this.player.dispose();
+    super.destroy(options);
   }
 }
 
