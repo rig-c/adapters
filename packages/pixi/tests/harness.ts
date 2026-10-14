@@ -1,3 +1,4 @@
+import { fixtureModelUrl } from '@rig-c/adapters-shared/fixtures';
 import {
   CanvasRenderer,
   loadModel,
@@ -35,7 +36,7 @@ const cachedAssets = new Map<string, Promise<ModelAssets>>();
 function getAssets(rigName: string): Promise<ModelAssets> {
   let promise = cachedAssets.get(rigName);
   if (!promise) {
-    promise = loadModel({ modelUrl: `/rigs/${rigName}/skeleton.model.json` });
+    promise = loadModel({ modelUrl: fixtureModelUrl(rigName) });
     cachedAssets.set(rigName, promise);
   }
   return promise;

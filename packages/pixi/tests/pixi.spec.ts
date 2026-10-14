@@ -19,16 +19,16 @@ import {
   CHANNEL_TOLERANCE,
   CONTENT_MISMATCH_LIMIT,
   diffBase64InPage,
-} from './pixelDiff.ts';
+} from '@rig-c/adapters-shared/parity';
 
-const HARNESS_URL = '/tests/harness.html';
+const HARNESS_URL = '/packages/pixi/tests/harness.html';
 const GALLERY_RIGS = ['walk', 'flex', 'ride'] as const;
 const SAMPLE_TIMES = [0, 0.5, 1.2] as const;
 const ISSUE3_TIMES = [0, 0.5, 1.0] as const;
 const FIGURE_ANIMATIONS = ['walk', 'mask', 'tilted', 'window', 'inverse', 'nested'] as const;
 
 const RIGS_DIR = join(process.cwd(), 'public', 'rigs');
-const SRC_DIR = join(process.cwd(), 'src');
+const SRC_DIR = join(process.cwd(), 'packages', 'pixi', 'src');
 
 function walkFiles(dir: string): string[] {
   const results: string[] = [];
