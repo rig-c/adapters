@@ -848,3 +848,407 @@ test.describe('Issue #2 & #3 — PixiRenderer full PosedFrame verification', () 
     expect(mutantDiffs[0]).toContain(firstKey);
   });
 });
+
+test.describe('Issue #4 — PixiRig live player in a Pixi scene', () => {
+  const ALL_RIGS = ['walk', 'flex', 'ride', 'figure', 'glow', 'turned', 'duo'] as const;
+  const PARITY_TIMES = [0, 0.25, 0.5, 0.75, 1.2] as const;
+
+  test('Issue #4 Bar 1: Parity — at the same time, PixiRig drawn frame is byte-equal (JSON) to player.posedFrame() of a bare RigPlayer (plus mutant)', async ({
+    page,
+  }, testInfo) => {
+    await openHarness(page);
+
+    for (const rigName of ALL_RIGS) {
+      const res = await page.evaluate(
+        ({ r, ts }) =>
+          window.rigAdaptersHarness.parityProbe({
+            rigName: r,
+            times: ts,
+          }),
+        { r: rigName, ts: PARITY_TIMES },
+      );
+
+      console.log(
+        `[issue4:bar1:parity] ${testInfo.project.name} ${rigName}/${res.animation}: ` +
+          `times=${res.checkedTimes}, seekEqual=${res.allSeekFramesByteEqual}, ` +
+          `advanceEqual=${res.allAdvanceFramesByteEqual}, bonesEqual=${res.allBonesByteEqual} (${res.checkedBones} bones)`,
+      );
+
+      expect(res.allSeekFramesByteEqual).toBe(true);
+      expect(res.allAdvanceFramesByteEqual).toBe(true);
+      expect(res.allBonesByteEqual).toBe(true);
+      expect(res.firstMismatchDetail).toBeNull();
+    }
+
+    // Negative control (mutant): perturbing a drawn slot coordinate by +1e-3 fails byte-equality.
+    const mutantRes = await page.evaluate(() =>
+      window.rigAdaptersHarness.parityProbe({
+        rigName: 'walk',
+        times: [0.5],
+        mutantPerturbPose: true,
+      }),
+    );
+    console.log(
+      `[issue4:bar1:mutant] ${testInfo.project.name} walk@0.5s: seekEqual=${mutantRes.allSeekFramesByteEqual}, detail=${mutantRes.firstMismatchDetail}`,
+    );
+    expect(mutantRes.allSeekFramesByteEqual).toBe(false);
+  });
+
+  test('Issue #4 Bar 2: Ticker — 300 ticks at fixed dt advance the pose exactly as advance(dt) called 300 times; timescale 0 holds the frame and reuses every geometry with zero uploads (plus mutants)', async ({
+    page,
+  }, testInfo) => {
+    await openHarness(page);
+
+    for (const rigName of ['walk', 'flex', 'ride', 'figure', 'glow', 'duo'] as const) {
+      const res = await page.evaluate(
+        (r) =>
+          window.rigAdaptersHarness.tickerProbe({
+            rigName: r,
+            ticks: 300,
+            dt: 1 / 60,
+          }),
+        rigName,
+      );
+
+      console.log(
+        `[issue4:bar2:ticker] ${testInfo.project.name} ${rigName}/${res.animation}: ` +
+          `ticks=${res.ticks}, dt=${res.dt.toFixed(6)}, all300Match=${res.allTicksMatchManualAdvance}, ` +
+          `finalEqual=${res.finalRecordByteEqual}, t=${res.tickerTimeAfter300.toFixed(6)}s, ` +
+          `binary20msCumMatches=${res.binaryExactCumulativeMatchesAll300}, ` +
+          `naiveCumMismatches=${res.naiveCumulativeMismatchesOutOf300}/300 (drift=${res.naiveCumulativeTimeDriftAt300.toExponential(3)}s), ` +
+          `heldAtTimescale0=${res.frameHeldWhenTimescaleZero}, ` +
+          `uploadsAt0(uv=${res.uploadsDuringTimescaleZero.uvUploads}, tri=${res.uploadsDuringTimescaleZero.triangleUploads}, geom=${res.uploadsDuringTimescaleZero.geometryUploads}, pos=${res.uploadsDuringTimescaleZero.positionUploads}, newMeshes=${res.uploadsDuringTimescaleZero.newMeshGeometries})`,
+      );
+
+      expect(res.allTicksMatchManualAdvance).toBe(true);
+      expect(res.finalRecordByteEqual).toBe(true);
+      expect(res.tickerTimeAfter300).toBe(res.manualTimeAfter300);
+      expect(res.binaryExactCumulativeMatchesAll300).toBe(true);
+      expect(res.frameHeldWhenTimescaleZero).toBe(true);
+      expect(res.uploadsDuringTimescaleZero).toEqual({
+        uvUploads: 0,
+        triangleUploads: 0,
+        geometryUploads: 0,
+        positionUploads: 0,
+        newMeshGeometries: 0,
+      });
+    }
+
+    // Mutant A: 299 ticks vs 300 manual advance(dt) calls fails record equality.
+    const dropTickMutant = await page.evaluate(() =>
+      window.rigAdaptersHarness.tickerProbe({
+        rigName: 'flex',
+        ticks: 300,
+        dt: 1 / 60,
+        mutant: 'drop-one-tick',
+      }),
+    );
+    console.log(
+      `[issue4:bar2:mutant:drop-one-tick] ${testInfo.project.name} flex: finalEqual=${dropTickMutant.finalRecordByteEqual}`,
+    );
+    expect(dropTickMutant.finalRecordByteEqual).toBe(false);
+
+    // Mutant B: ignoring timescale=0 fails frame-hold and uploads new vertex positions across 300 ticks.
+    const ignoreZeroScaleMutant = await page.evaluate(() =>
+      window.rigAdaptersHarness.tickerProbe({
+        rigName: 'flex',
+        ticks: 300,
+        dt: 1 / 60,
+        mutant: 'ignore-zero-timescale',
+      }),
+    );
+    console.log(
+      `[issue4:bar2:mutant:ignore-zero-timescale] ${testInfo.project.name} flex: held=${ignoreZeroScaleMutant.frameHeldWhenTimescaleZero}, posUploads=${ignoreZeroScaleMutant.uploadsDuringTimescaleZero.positionUploads}`,
+    );
+    expect(ignoreZeroScaleMutant.frameHeldWhenTimescaleZero).toBe(false);
+    expect(ignoreZeroScaleMutant.uploadsDuringTimescaleZero.positionUploads).toBeGreaterThan(0);
+
+    // Mutant C: alwaysReuploadGeometry=true forces 300 * meshSlotCount UV, triangle, and position uploads during timescale=0.
+    const alwaysReuploadMutant = await page.evaluate(() =>
+      window.rigAdaptersHarness.tickerProbe({
+        rigName: 'flex',
+        ticks: 300,
+        dt: 1 / 60,
+        mutant: 'always-reupload',
+      }),
+    );
+    console.log(
+      `[issue4:bar2:mutant:always-reupload] ${testInfo.project.name} flex: geomUploads=${alwaysReuploadMutant.uploadsDuringTimescaleZero.geometryUploads}, posUploads=${alwaysReuploadMutant.uploadsDuringTimescaleZero.positionUploads}`,
+    );
+    expect(alwaysReuploadMutant.uploadsDuringTimescaleZero.geometryUploads).toBe(
+      300 * 2 * alwaysReuploadMutant.meshSlotCount,
+    );
+    expect(alwaysReuploadMutant.uploadsDuringTimescaleZero.positionUploads).toBe(
+      300 * alwaysReuploadMutant.meshSlotCount,
+    );
+  });
+
+  test('Issue #4 Bar 3: Several instances — ten PixiRigs over one load draw ten different times; destroying one frees only its own objects; destroying the last frees the page textures (plus mutant)', async ({
+    page,
+  }, testInfo) => {
+    await openHarness(page);
+
+    for (const rigName of ['walk', 'flex', 'ride', 'figure', 'duo'] as const) {
+      const res = await page.evaluate(
+        (r) =>
+          window.rigAdaptersHarness.multiInstanceProbe({
+            rigName: r,
+            instanceCount: 10,
+          }),
+        rigName,
+      );
+
+      const per = res.perRigCountsBefore;
+      const before = res.aggregateBeforeDestroy;
+      const after1 = res.aggregateAfterFirstDestroy;
+      const after9 = res.aggregateAfterNineDestroys;
+      const after10 = res.aggregateAfterLastDestroy;
+
+      console.log(
+        `[issue4:bar3:instances] ${testInfo.project.name} ${rigName}/${res.animation}: ` +
+          `distinctFrames=${res.distinctDrawnFrames}/10, matchBare=${res.allTenMatchBarePlayers}, sharedSources=${res.sharedPageSourcesIdenticalAcrossAllTen} | ` +
+          `before(rigs=${before.activeRigs}, sprites=${before.totalSprites}, meshes=${before.totalMeshes}, geom=${before.totalGeometries}, texViews=${before.totalTextureViews}, pageTex=${before.livePageTextures}, refCount=${before.minPageRefCount}..${before.maxPageRefCount}) -> ` +
+          `after1(rigs=${after1.activeRigs}, sprites=${after1.totalSprites}, meshes=${after1.totalMeshes}, geom=${after1.totalGeometries}, texViews=${after1.totalTextureViews}, pageTex=${after1.livePageTextures}, refCount=${after1.minPageRefCount}..${after1.maxPageRefCount}) -> ` +
+          `after9(rigs=${after9.activeRigs}, pageTex=${after9.livePageTextures}, refCount=${after9.minPageRefCount}..${after9.maxPageRefCount}) -> ` +
+          `after10(rigs=${after10.activeRigs}, sprites=${after10.totalSprites}, meshes=${after10.totalMeshes}, geom=${after10.totalGeometries}, texViews=${after10.totalTextureViews}, pageTex=${after10.livePageTextures}, refCount=${after10.minPageRefCount}..${after10.maxPageRefCount}, sourcesDestroyed=${after10.allPageSourcesDestroyed})`,
+      );
+
+      // 1. Ten PixiRigs over one load draw ten distinct times, each matching a bare RigPlayer.
+      expect(res.distinctDrawnFrames).toBe(10);
+      expect(res.allTenMatchBarePlayers).toBe(true);
+      expect(res.sharedPageSourcesIdenticalAcrossAllTen).toBe(true);
+
+      // 2. Before destroy: 10 active rigs, each owning its sprites/meshes/geometries/textureViews, sharing `per.retainedPages` page textures with refCount = 10.
+      expect(before.activeRigs).toBe(10);
+      expect(before.totalSprites).toBe(10 * per.sprites);
+      expect(before.totalMeshes).toBe(10 * per.meshes);
+      expect(before.totalGeometries).toBe(10 * per.geometries);
+      expect(before.totalTextureViews).toBe(10 * per.textureViews);
+      expect(before.livePageTextures).toBe(per.retainedPages);
+      expect(before.minPageRefCount).toBe(10);
+      expect(before.maxPageRefCount).toBe(10);
+
+      // 3. Destroying one frees ONLY its own objects; surviving 9 rigs keep theirs and page textures stay live with refCount = 9.
+      expect(res.destroyedRigCountsAfterFirstDestroy.sprites).toBe(0);
+      expect(res.destroyedRigCountsAfterFirstDestroy.meshes).toBe(0);
+      expect(res.destroyedRigCountsAfterFirstDestroy.geometries).toBe(0);
+      expect(res.destroyedRigCountsAfterFirstDestroy.textureViews).toBe(0);
+      expect(res.destroyedRigCountsAfterFirstDestroy.retainedPages).toBe(0);
+      expect(res.survivingRigCountsAfterFirstDestroy.sprites).toBe(per.sprites);
+      expect(res.survivingRigCountsAfterFirstDestroy.meshes).toBe(per.meshes);
+
+      expect(after1.activeRigs).toBe(9);
+      expect(after1.totalSprites).toBe(9 * per.sprites);
+      expect(after1.totalMeshes).toBe(9 * per.meshes);
+      expect(after1.totalGeometries).toBe(9 * per.geometries);
+      expect(after1.totalTextureViews).toBe(9 * per.textureViews);
+      expect(after1.livePageTextures).toBe(per.retainedPages);
+      expect(after1.minPageRefCount).toBe(9);
+      expect(after1.maxPageRefCount).toBe(9);
+      expect(after1.allPageSourcesDestroyed).toBe(false);
+
+      // 4. After 9 destroys, 1 rig remains and page textures are still live with refCount = 1.
+      expect(after9.activeRigs).toBe(1);
+      expect(after9.livePageTextures).toBe(per.retainedPages);
+      expect(after9.minPageRefCount).toBe(1);
+      expect(after9.maxPageRefCount).toBe(1);
+      expect(after9.allPageSourcesDestroyed).toBe(false);
+
+      // 5. Destroying the last (10th) instance frees all shared page textures (livePageTextures = 0, refCount = 0, destroyed = true).
+      expect(after10.activeRigs).toBe(0);
+      expect(after10.totalSprites).toBe(0);
+      expect(after10.totalMeshes).toBe(0);
+      expect(after10.totalGeometries).toBe(0);
+      expect(after10.totalTextureViews).toBe(0);
+      expect(after10.livePageTextures).toBe(0);
+      expect(after10.minPageRefCount).toBe(0);
+      expect(after10.maxPageRefCount).toBe(0);
+      expect(after10.allPageSourcesDestroyed).toBe(true);
+    }
+
+    // Negative control (mutant): skipping page source destruction on the last rig leaves page textures leaked.
+    const leakMutant = await page.evaluate(() =>
+      window.rigAdaptersHarness.multiInstanceProbe({
+        rigName: 'walk',
+        instanceCount: 10,
+        mutantSkipLastPageRelease: true,
+      }),
+    );
+    console.log(
+      `[issue4:bar3:mutant:leak] ${testInfo.project.name} walk: after10 livePageTextures=${leakMutant.aggregateAfterLastDestroy.livePageTextures}, allDestroyed=${leakMutant.aggregateAfterLastDestroy.allPageSourcesDestroyed}`,
+    );
+    expect(leakMutant.aggregateAfterLastDestroy.livePageTextures).toBeGreaterThan(0);
+    expect(leakMutant.aggregateAfterLastDestroy.allPageSourcesDestroyed).toBe(false);
+  });
+
+  test('Issue #4 Bar 4: bounds() — equals @rig-c/play bounds() for the same frame and slot filter across all rigs (plus mutants)', async ({
+    page,
+  }, testInfo) => {
+    await openHarness(page);
+
+    for (const rigName of ALL_RIGS) {
+      const res = await page.evaluate(
+        ({ r, ts }) =>
+          window.rigAdaptersHarness.boundsProbe({
+            rigName: r,
+            times: ts,
+          }),
+        { r: rigName, ts: [0, 0.35, 0.7, 1.1] },
+      );
+
+      console.log(
+        `[issue4:bar4:bounds] ${testInfo.project.name} ${rigName}/${res.animation}: ` +
+          `cases=${res.totalCases}, allMatch=${res.allMatch}, sample@0.35s=${JSON.stringify(res.cases.find((c) => c.time === 0.35 && c.filterLabel === 'all')?.rigBounds)}`,
+      );
+
+      expect(res.totalCases).toBe(16);
+      expect(res.allMatch).toBe(true);
+      for (const c of res.cases) {
+        expect(c.matches).toBe(true);
+        if (c.filterLabel === 'only:[]') {
+          expect(c.rigBounds).toBeNull();
+          expect(c.bareBounds).toBeNull();
+        } else {
+          expect(c.rigBounds).not.toBeNull();
+        }
+      }
+    }
+
+    // Mutant A: ignoring slot filter fails bounds() equality on filtered slots.
+    const ignoreFilterMutant = await page.evaluate(() =>
+      window.rigAdaptersHarness.boundsProbe({
+        rigName: 'walk',
+        times: [0.35],
+        mutant: 'ignore-filter',
+      }),
+    );
+    console.log(
+      `[issue4:bar4:mutant:ignore-filter] ${testInfo.project.name} walk: allMatch=${ignoreFilterMutant.allMatch}`,
+    );
+    expect(ignoreFilterMutant.allMatch).toBe(false);
+
+    // Mutant B: inflating width by +5 fails bounds() equality.
+    const inflateMutant = await page.evaluate(() =>
+      window.rigAdaptersHarness.boundsProbe({
+        rigName: 'flex',
+        times: [0.35],
+        mutant: 'inflate-width',
+      }),
+    );
+    console.log(
+      `[issue4:bar4:mutant:inflate-width] ${testInfo.project.name} flex: allMatch=${inflateMutant.allMatch}`,
+    );
+    expect(inflateMutant.allMatch).toBe(false);
+  });
+
+  test('Issue #4 Bar 5: Demo — index.html plays the gallery rigs in a Pixi stage with ?rig=, ?anim=, ?time=, ?timescale= deterministically', async ({
+    page,
+  }, testInfo) => {
+    const demoCases = [
+      { rig: 'walk', anim: 'walk', time: 0.35, timescale: 0, count: 1 },
+      { rig: 'flex', anim: 'wave', time: 0.5, timescale: 0, count: 1 },
+      { rig: 'ride', anim: 'ride', time: 0.4, timescale: 0, count: 1 },
+      { rig: 'walk', anim: 'walk', time: 0.25, timescale: 0, count: 4 },
+    ] as const;
+
+    for (const c of demoCases) {
+      const url = `/?rig=${c.rig}&anim=${c.anim}&time=${c.time}&timescale=${c.timescale}&count=${c.count}`;
+      await page.goto(url);
+      await page.waitForFunction(() => document.body.dataset.demoReady === 'true');
+
+      const state1 = await page.evaluate(() => window.__rigAdaptersDemo!);
+      const png1Base64 = await page.evaluate(() => {
+        const canvas = document.querySelector('#pixi-stage canvas') as HTMLCanvasElement;
+        return canvas.toDataURL('image/png').split(',')[1];
+      });
+
+      // Reload the exact same URL and verify the captured picture is 100% deterministic (0 differing pixels).
+      await page.goto(url);
+      await page.waitForFunction(() => document.body.dataset.demoReady === 'true');
+      const png2Base64 = await page.evaluate(() => {
+        const canvas = document.querySelector('#pixi-stage canvas') as HTMLCanvasElement;
+        return canvas.toDataURL('image/png').split(',')[1];
+      });
+
+      await openHarness(page);
+      const repeatDiff = await diffBase64InPage(page, png1Base64, png2Base64);
+
+      console.log(
+        `[issue4:bar5:demo] ${testInfo.project.name} ${url}: ` +
+          `rig=${state1.rigName}, anim=${state1.animName}, t=${state1.time}s, timescale=${state1.timescale}, ` +
+          `instances=${state1.instanceCount}, nonEmptyPixels=${state1.nonEmptyPixels}, ` +
+          `pageTextures=${state1.livePageTextures}, deterministicDiff(bad=${repeatDiff.bad}, maxDelta=${repeatDiff.maxDelta})`,
+      );
+
+      expect(state1.rigName).toBe(c.rig);
+      expect(state1.animName).toBe(c.anim);
+      expect(state1.time).toBeCloseTo(c.time, 6);
+      expect(state1.timescale).toBe(c.timescale);
+      expect(state1.instanceCount).toBe(c.count);
+      expect(state1.nonEmptyPixels).toBeGreaterThan(5000);
+      expect(state1.bounds).not.toBeNull();
+      expect(repeatDiff.bad).toBe(0);
+      expect(repeatDiff.maxDelta).toBe(0);
+    }
+
+    // Negative control: two different ?time= query values produce different pictures.
+    await page.goto('/?rig=walk&anim=walk&time=0.1&timescale=0');
+    await page.waitForFunction(() => document.body.dataset.demoReady === 'true');
+    const t1Png = await page.evaluate(() => {
+      const canvas = document.querySelector('#pixi-stage canvas') as HTMLCanvasElement;
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+
+    await page.goto('/?rig=walk&anim=walk&time=0.6&timescale=0');
+    await page.waitForFunction(() => document.body.dataset.demoReady === 'true');
+    const t2Png = await page.evaluate(() => {
+      const canvas = document.querySelector('#pixi-stage canvas') as HTMLCanvasElement;
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+
+    await openHarness(page);
+    const timeDiff = await diffBase64InPage(page, t1Png, t2Png);
+    console.log(
+      `[issue4:bar5:demo:time-diff] ${testInfo.project.name} walk@0.1s vs walk@0.6s: bad=${timeDiff.bad}, maxDelta=${timeDiff.maxDelta}`,
+    );
+    expect(timeDiff.bad).toBeGreaterThan(1000);
+  });
+
+  test('Issue #4 Bar 6: Bars 4–6 of #2 still hold on PixiRig — no Spine, refusals by name, unmodified inputs and frozen ModelAssets', async ({
+    page,
+  }, testInfo) => {
+    await openHarness(page);
+    const res = await page.evaluate(() => window.rigAdaptersHarness.pixiRigRefusalAndFreezeProbe());
+
+    for (const r of res.refusals) {
+      console.log(
+        `[issue4:bar6:refusal] ${testInfo.project.name} ${r.name}: threw=${r.threw}, message="${r.message}"`,
+      );
+      expect(r.threw).toBe(true);
+    }
+
+    const byName = new Map(res.refusals.map((r) => [r.name, r.message]));
+    expect(byName.get('invalid-assets')).toContain('invalid assets');
+    expect(byName.get('invalid-initial-timescale')).toContain('invalid timescale=-1');
+    expect(byName.get('unknown-animation')).toContain('nonexistent_animation_xyz');
+    expect(byName.get('empty-animation-name')).toContain('invalid animation name');
+    expect(byName.get('unknown-bone')).toContain('nonexistent_bone_xyz');
+    expect(byName.get('empty-bone-name')).toContain('invalid bone name');
+    expect(byName.get('negative-dt')).toContain('invalid dt=-0.016');
+    expect(byName.get('nan-dt')).toContain('invalid dt=NaN');
+    expect(byName.get('nan-seek')).toContain('invalid time=NaN');
+    expect(byName.get('negative-timescale-setter')).toContain('invalid timescale=-0.5');
+    expect(byName.get('play-after-destroy')).toContain('destroyed PixiRig');
+    expect(byName.get('advance-after-destroy')).toContain('destroyed PixiRig');
+    expect(byName.get('seek-after-destroy')).toContain('destroyed PixiRig');
+    expect(byName.get('bone-after-destroy')).toContain('destroyed PixiRig');
+    expect(byName.get('bounds-after-destroy')).toContain('destroyed PixiRig');
+
+    expect(res.frozenAssetsLifecycleSucceeded).toBe(true);
+
+    // Confirm on-disk rig files remain completely unmodified after all Issue #2, #3, and #4 tests.
+    const afterDigests = snapshotDigests(RIGS_DIR);
+    const diffs = compareDigests(initialRigDigests, afterDigests);
+    expect(diffs).toEqual([]);
+  });
+});

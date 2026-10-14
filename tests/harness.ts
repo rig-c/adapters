@@ -2,17 +2,24 @@ import {
   CanvasRenderer,
   loadModel,
   type ModelAssets,
+  type PoseBounds,
   type PosedFrame,
   type PosedMesh,
   type PosedRegion,
   type PosedSlot,
   RigPlayer,
+  type SlotFilter,
 } from '@rig-c/play';
-import { Container, Mesh, type MeshGeometry, Sprite, WebGLRenderer } from 'pixi.js';
+import { Container, Mesh, type MeshGeometry, Sprite, Ticker, WebGLRenderer } from 'pixi.js';
 
 import {
   BLEND_PIXI,
+  getLivePageTextureCount,
+  getPageRefCount,
+  getSharedPageSource,
   PixiRenderer,
+  PixiRig,
+  type PixiRigResourceCounts,
   readMeshScreenVertices,
   readSpriteScreenCorners,
   tintToPixi,
@@ -1047,6 +1054,720 @@ async function refusalProbe(): Promise<RefusalCaseResult[]> {
   return results;
 }
 
+export interface ParityProbeOptions {
+  rigName: string;
+  animation?: string;
+  times: readonly number[];
+  mutantPerturbPose?: boolean;
+}
+
+export interface ParityProbeResult {
+  rigName: string;
+  animation: string;
+  checkedTimes: number;
+  allSeekFramesByteEqual: boolean;
+  allAdvanceFramesByteEqual: boolean;
+  allBonesByteEqual: boolean;
+  checkedBones: number;
+  firstMismatchDetail: string | null;
+}
+
+function defaultAnimationFor(assets: ModelAssets): string {
+  return assets.animations[0]?.name ?? '';
+}
+
+function readBoneNames(rig: PixiRig): readonly string[] {
+  let names: readonly string[] = [];
+  rig.adjust = (bones) => {
+    names = bones.names;
+  };
+  rig.adjust = null;
+  return names;
+}
+
+async function parityProbe(options: ParityProbeOptions): Promise<ParityProbeResult> {
+  const assets = await getAssets(options.rigName);
+  const animName = options.animation ?? defaultAnimationFor(assets);
+
+  const rig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+  const bareHost = document.createElement('div');
+  const bareMode = assets.regions === 'none' ? 'canvas' : 'dom';
+  const bare = new RigPlayer(bareHost, assets, { mode: bareMode });
+
+  rig.play(animName);
+  bare.play(animName);
+
+  const boneNames = readBoneNames(rig);
+  let allSeekFramesByteEqual = true;
+  let allBonesByteEqual = true;
+  let firstMismatchDetail: string | null = null;
+
+  for (const t of options.times) {
+    rig.seek(t);
+    bare.seek(t);
+
+    let drawn = rig.drawnFrame();
+    if (options.mutantPerturbPose && drawn.order.length > 0) {
+      const first = drawn.order[0];
+      const mutatedFirst: PosedSlot =
+        first.kind === 'region'
+          ? {
+              ...first,
+              corners: [
+                first.corners[0] + 1e-3,
+                first.corners[1],
+                first.corners[2],
+                first.corners[3],
+                first.corners[4],
+                first.corners[5],
+                first.corners[6],
+                first.corners[7],
+              ],
+            }
+          : {
+              ...first,
+              vertices: first.vertices.map((v, idx) => (idx === 0 ? v + 1e-3 : v)),
+            };
+      drawn = {
+        order: [mutatedFirst, ...drawn.order.slice(1)],
+      };
+    }
+
+    const rigJson = JSON.stringify(drawn);
+    const bareJson = JSON.stringify(bare.posedFrame());
+    if (rigJson !== bareJson) {
+      allSeekFramesByteEqual = false;
+      if (!firstMismatchDetail) {
+        firstMismatchDetail = `seek(${t}): JSON length rig=${rigJson.length} vs bare=${bareJson.length}`;
+      }
+    }
+
+    for (const bName of boneNames) {
+      const rb = JSON.stringify(rig.bone(bName));
+      const bb = JSON.stringify(bare.bone(bName));
+      if (rb !== bb) {
+        allBonesByteEqual = false;
+        if (!firstMismatchDetail) {
+          firstMismatchDetail = `bone("${bName}")@${t}: rig=${rb} vs bare=${bb}`;
+        }
+      }
+    }
+  }
+
+  // Also verify step-by-step advance(dt) parity across 10 steps of dt = 1/60.
+  rig.play(animName);
+  bare.play(animName);
+  let allAdvanceFramesByteEqual = true;
+  const dt = 1 / 60;
+  for (let step = 1; step <= 10; step++) {
+    rig.advance(dt);
+    bare.advance(dt);
+    if (JSON.stringify(rig.drawnFrame()) !== JSON.stringify(bare.posedFrame())) {
+      allAdvanceFramesByteEqual = false;
+      if (!firstMismatchDetail) {
+        firstMismatchDetail = `advance step ${step} mismatch`;
+      }
+    }
+  }
+
+  rig.destroy();
+  bare.dispose();
+
+  return {
+    rigName: options.rigName,
+    animation: animName,
+    checkedTimes: options.times.length,
+    allSeekFramesByteEqual,
+    allAdvanceFramesByteEqual,
+    allBonesByteEqual,
+    checkedBones: boneNames.length,
+    firstMismatchDetail,
+  };
+}
+
+export interface TickerProbeOptions {
+  rigName: string;
+  animation?: string;
+  ticks?: number;
+  dt?: number;
+  mutant?: 'none' | 'drop-one-tick' | 'ignore-zero-timescale' | 'always-reupload';
+}
+
+export interface TickerProbeResult {
+  rigName: string;
+  animation: string;
+  ticks: number;
+  dt: number;
+  allTicksMatchManualAdvance: boolean;
+  finalRecordByteEqual: boolean;
+  tickerTimeAfter300: number;
+  manualTimeAfter300: number;
+  binaryExactCumulativeMatchesAll300: boolean;
+  naiveCumulativeMismatchesOutOf300: number;
+  naiveCumulativeTimeDriftAt300: number;
+  frameHeldWhenTimescaleZero: boolean;
+  meshSlotCount: number;
+  uploadsDuringTimescaleZero: {
+    uvUploads: number;
+    triangleUploads: number;
+    geometryUploads: number;
+    positionUploads: number;
+    newMeshGeometries: number;
+  };
+}
+
+async function tickerProbe(options: TickerProbeOptions): Promise<TickerProbeResult> {
+  const assets = await getAssets(options.rigName);
+  const animName = options.animation ?? defaultAnimationFor(assets);
+  const ticks = options.ticks ?? 300;
+  const dt = options.dt ?? 1 / 60;
+  const mutant = options.mutant ?? 'none';
+
+  // 1. 300 ticks via PixiJS Ticker vs 300 manual advance(dt) calls.
+  const ticker = new Ticker();
+  ticker.autoStart = false;
+
+  const tickerRig = new PixiRig(assets, { ticker, autoUpdate: true });
+  const manualRig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+
+  tickerRig.play(animName);
+  manualRig.play(animName);
+
+  const tickerSteps = mutant === 'drop-one-tick' ? ticks - 1 : ticks;
+  let allTicksMatchManualAdvance = true;
+  const stepMs = dt * 1000;
+
+  for (let i = 1; i <= ticks; i++) {
+    if (i <= tickerSteps) {
+      ticker.lastTime = 0;
+      ticker.update(stepMs);
+    }
+    manualRig.advance(dt);
+    if (
+      tickerRig.time !== manualRig.time ||
+      JSON.stringify(tickerRig.drawnFrame()) !== JSON.stringify(manualRig.drawnFrame())
+    ) {
+      allTicksMatchManualAdvance = false;
+    }
+  }
+
+  const finalRecordByteEqual =
+    JSON.stringify(tickerRig.drawnFrame()) === JSON.stringify(manualRig.drawnFrame());
+  const tickerTimeAfter300 = tickerRig.time;
+  const manualTimeAfter300 = manualRig.time;
+
+  // Also measure binary-exact cumulative timestamps (dt = 1/50 = 20ms) vs naive cumulative (k * 1000/60)
+  // to quantify PixiJS Ticker's `currentTime - lastTime` floating-point behavior.
+  const exactTicker = new Ticker();
+  exactTicker.autoStart = false;
+  exactTicker.lastTime = 0;
+  const exactTickerRig = new PixiRig(assets, { ticker: exactTicker, autoUpdate: true });
+  const exactManualRig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+  exactTickerRig.play(animName);
+  exactManualRig.play(animName);
+  let binaryExactCumulativeMatchesAll300 = true;
+  for (let k = 1; k <= ticks; k++) {
+    exactTicker.update(k * 20);
+    exactManualRig.advance(0.02);
+    if (JSON.stringify(exactTickerRig.drawnFrame()) !== JSON.stringify(exactManualRig.drawnFrame())) {
+      binaryExactCumulativeMatchesAll300 = false;
+    }
+  }
+  exactTickerRig.destroy();
+  exactManualRig.destroy();
+
+  const naiveTicker = new Ticker();
+  naiveTicker.autoStart = false;
+  naiveTicker.lastTime = 0;
+  const naiveTickerRig = new PixiRig(assets, { ticker: naiveTicker, autoUpdate: true });
+  const naiveManualRig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+  naiveTickerRig.play(animName);
+  naiveManualRig.play(animName);
+  let naiveCumulativeMismatchesOutOf300 = 0;
+  for (let k = 1; k <= ticks; k++) {
+    naiveTicker.update(k * (1000 / 60));
+    naiveManualRig.advance(1 / 60);
+    if (JSON.stringify(naiveTickerRig.drawnFrame()) !== JSON.stringify(naiveManualRig.drawnFrame())) {
+      naiveCumulativeMismatchesOutOf300++;
+    }
+  }
+  const naiveCumulativeTimeDriftAt300 = Math.abs(naiveTickerRig.time - naiveManualRig.time);
+  naiveTickerRig.destroy();
+  naiveManualRig.destroy();
+
+  // 2. `timescale = 0` holds the frame and reuses every geometry across 300 ticks (zero uploads).
+  tickerRig.seek(0.5);
+  const meshSlotCount = tickerRig.drawnFrame().order.filter((s) => s.kind === 'mesh').length;
+  const heldBaselineJson = JSON.stringify(tickerRig.drawnFrame());
+
+  tickerRig.timescale = mutant === 'ignore-zero-timescale' ? 1 : 0;
+  if (mutant === 'always-reupload') {
+    tickerRig.renderer.alwaysReuploadGeometry = true;
+  }
+
+  const baseUv = tickerRig.renderer.uvUploadCount;
+  const baseTri = tickerRig.renderer.triangleUploadCount;
+  const baseGeom = tickerRig.renderer.geometryUploadCount;
+  const basePos = tickerRig.renderer.positionUploadCount;
+  const baseMeshGeom = tickerRig.renderer.meshGeometryCount;
+
+  let frameHeldWhenTimescaleZero = true;
+  for (let i = 1; i <= ticks; i++) {
+    ticker.lastTime = 0;
+    ticker.update(stepMs);
+    if (JSON.stringify(tickerRig.drawnFrame()) !== heldBaselineJson) {
+      frameHeldWhenTimescaleZero = false;
+    }
+  }
+
+  const uploadsDuringTimescaleZero = {
+    uvUploads: tickerRig.renderer.uvUploadCount - baseUv,
+    triangleUploads: tickerRig.renderer.triangleUploadCount - baseTri,
+    geometryUploads: tickerRig.renderer.geometryUploadCount - baseGeom,
+    positionUploads: tickerRig.renderer.positionUploadCount - basePos,
+    newMeshGeometries: tickerRig.renderer.meshGeometryCount - baseMeshGeom,
+  };
+
+  tickerRig.destroy();
+  manualRig.destroy();
+
+  return {
+    rigName: options.rigName,
+    animation: animName,
+    ticks,
+    dt,
+    allTicksMatchManualAdvance,
+    finalRecordByteEqual,
+    tickerTimeAfter300,
+    manualTimeAfter300,
+    binaryExactCumulativeMatchesAll300,
+    naiveCumulativeMismatchesOutOf300,
+    naiveCumulativeTimeDriftAt300,
+    frameHeldWhenTimescaleZero,
+    meshSlotCount,
+    uploadsDuringTimescaleZero,
+  };
+}
+
+export interface MultiInstanceAggregateCounts {
+  activeRigs: number;
+  totalSprites: number;
+  totalMeshes: number;
+  totalGeometries: number;
+  totalMasks: number;
+  totalFilters: number;
+  totalTextureViews: number;
+  totalRetainedPageHolds: number;
+  livePageTextures: number;
+  minPageRefCount: number;
+  maxPageRefCount: number;
+  allPageSourcesDestroyed: boolean;
+}
+
+export interface MultiInstanceProbeOptions {
+  rigName: string;
+  animation?: string;
+  instanceCount?: number;
+  mutantSkipLastPageRelease?: boolean;
+}
+
+export interface MultiInstanceProbeResult {
+  rigName: string;
+  animation: string;
+  instanceCount: number;
+  distinctTimes: number[];
+  distinctDrawnFrames: number;
+  allTenMatchBarePlayers: boolean;
+  sharedPageSourcesIdenticalAcrossAllTen: boolean;
+  perRigCountsBefore: PixiRigResourceCounts;
+  destroyedRigCountsAfterFirstDestroy: PixiRigResourceCounts;
+  survivingRigCountsAfterFirstDestroy: PixiRigResourceCounts;
+  aggregateBeforeDestroy: MultiInstanceAggregateCounts;
+  aggregateAfterFirstDestroy: MultiInstanceAggregateCounts;
+  aggregateAfterNineDestroys: MultiInstanceAggregateCounts;
+  aggregateAfterLastDestroy: MultiInstanceAggregateCounts;
+}
+
+async function multiInstanceProbe(
+  options: MultiInstanceProbeOptions,
+): Promise<MultiInstanceProbeResult> {
+  const assets = await getAssets(options.rigName);
+  const animName = options.animation ?? defaultAnimationFor(assets);
+  const count = options.instanceCount ?? 10;
+
+  const gl = await getPixiGl(800, 600);
+  const stage = new Container();
+
+  const rigs: PixiRig[] = [];
+  const distinctTimes: number[] = [];
+  let allTenMatchBarePlayers = true;
+
+  for (let i = 0; i < count; i++) {
+    const t = Number((0.05 + i * 0.11).toFixed(4));
+    distinctTimes.push(t);
+    const rig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+    rig.play(animName);
+    rig.seek(t);
+    stage.addChild(rig);
+    rigs.push(rig);
+
+    const bare = new RigPlayer(document.createElement('div'), assets, {
+      mode: assets.regions === 'none' ? 'canvas' : 'dom',
+    });
+    bare.play(animName);
+    bare.seek(t);
+    if (JSON.stringify(rig.drawnFrame()) !== JSON.stringify(bare.posedFrame())) {
+      allTenMatchBarePlayers = false;
+    }
+    bare.dispose();
+  }
+
+  gl.render({ container: stage });
+
+  const distinctDrawnFrames = new Set(rigs.map((r) => JSON.stringify(r.drawnFrame()))).size;
+
+  // Verify all 10 rigs share the exact same ImageSource object for every rendered page.
+  const renderedPageNames = Array.from(new Set(rigs[0].drawnFrame().order.map((s) => s.page)));
+  const renderedPageImages = renderedPageNames
+    .map((name) => assets.pageImages.get(name))
+    .filter((img): img is HTMLImageElement => img !== undefined);
+  const trackedSources = renderedPageImages
+    .map((img) => getSharedPageSource(img))
+    .filter((s) => s !== undefined);
+
+  let sharedPageSourcesIdenticalAcrossAllTen = renderedPageNames.length > 0;
+  for (const pageName of renderedPageNames) {
+    const firstSource = rigs[0].renderer.getPageSource(pageName);
+    if (!firstSource) {
+      sharedPageSourcesIdenticalAcrossAllTen = false;
+      continue;
+    }
+    for (let i = 1; i < count; i++) {
+      if (rigs[i].renderer.getPageSource(pageName) !== firstSource) {
+        sharedPageSourcesIdenticalAcrossAllTen = false;
+      }
+    }
+  }
+
+  const measureAggregate = (): MultiInstanceAggregateCounts => {
+    let activeRigs = 0;
+    let totalSprites = 0;
+    let totalMeshes = 0;
+    let totalGeometries = 0;
+    let totalMasks = 0;
+    let totalFilters = 0;
+    let totalTextureViews = 0;
+    let totalRetainedPageHolds = 0;
+
+    for (const r of rigs) {
+      if (!r.renderer.isDisposed) {
+        activeRigs++;
+      }
+      const c = r.resourceCounts();
+      totalSprites += c.sprites;
+      totalMeshes += c.meshes;
+      totalGeometries += c.geometries;
+      totalMasks += c.masks;
+      totalFilters += c.filters;
+      totalTextureViews += c.textureViews;
+      totalRetainedPageHolds += c.retainedPages;
+    }
+
+    const refCounts = renderedPageImages.map((img) => getPageRefCount(img));
+    const minPageRefCount = refCounts.length > 0 ? Math.min(...refCounts) : 0;
+    const maxPageRefCount = refCounts.length > 0 ? Math.max(...refCounts) : 0;
+    const allPageSourcesDestroyed =
+      trackedSources.length > 0 && trackedSources.every((src) => src.destroyed);
+
+    return {
+      activeRigs,
+      totalSprites,
+      totalMeshes,
+      totalGeometries,
+      totalMasks,
+      totalFilters,
+      totalTextureViews,
+      totalRetainedPageHolds,
+      livePageTextures: getLivePageTextureCount(),
+      minPageRefCount,
+      maxPageRefCount,
+      allPageSourcesDestroyed,
+    };
+  };
+
+  const perRigCountsBefore = rigs[0].resourceCounts();
+  const aggregateBeforeDestroy = measureAggregate();
+
+  // Destroy 1st instance (`rigs[0]`): frees only its own objects; other 9 rigs and shared page textures remain live.
+  rigs[0].destroy();
+  const destroyedRigCountsAfterFirstDestroy = rigs[0].resourceCounts();
+  const survivingRigCountsAfterFirstDestroy = rigs[1].resourceCounts();
+  const aggregateAfterFirstDestroy = measureAggregate();
+
+  // Verify the surviving 9 rigs still advance and render into the WebGL stage without issue.
+  for (let i = 1; i < count; i++) {
+    rigs[i].advance(1 / 60);
+  }
+  gl.render({ container: stage });
+
+  // Destroy instances 1..count-2 (leaving only the last instance `rigs[count - 1]`).
+  for (let i = 1; i < count - 1; i++) {
+    rigs[i].destroy();
+  }
+  const aggregateAfterNineDestroys = measureAggregate();
+
+  // Destroy the last instance (`rigs[count - 1]`): frees the shared page textures.
+  const lastRig = rigs[count - 1];
+  if (options.mutantSkipLastPageRelease) {
+    lastRig.renderer.releasePageSourcesOnDispose = false;
+  }
+  lastRig.destroy();
+  const aggregateAfterLastDestroy = measureAggregate();
+
+  // Clean up if mutant left page sources unreleased so subsequent tests see a clean state.
+  if (options.mutantSkipLastPageRelease) {
+    for (const src of trackedSources) {
+      if (!src.destroyed) {
+        src.destroy();
+      }
+    }
+    const dummyRoot = new Container();
+    const cleaner = new PixiRenderer(dummyRoot, assets);
+    cleaner.render(poseAt(assets, 0, animName).frame);
+    cleaner.dispose();
+    dummyRoot.destroy();
+  }
+
+  stage.destroy({ children: true });
+
+  return {
+    rigName: options.rigName,
+    animation: animName,
+    instanceCount: count,
+    distinctTimes,
+    distinctDrawnFrames,
+    allTenMatchBarePlayers,
+    sharedPageSourcesIdenticalAcrossAllTen,
+    perRigCountsBefore,
+    destroyedRigCountsAfterFirstDestroy,
+    survivingRigCountsAfterFirstDestroy,
+    aggregateBeforeDestroy,
+    aggregateAfterFirstDestroy,
+    aggregateAfterNineDestroys,
+    aggregateAfterLastDestroy,
+  };
+}
+
+export interface BoundsProbeOptions {
+  rigName: string;
+  animation?: string;
+  times: readonly number[];
+  mutant?: 'none' | 'ignore-filter' | 'inflate-width';
+}
+
+export interface BoundsCaseSummary {
+  time: number;
+  filterLabel: string;
+  rigBounds: PoseBounds | null;
+  bareBounds: PoseBounds | null;
+  matches: boolean;
+}
+
+export interface BoundsProbeResult {
+  rigName: string;
+  animation: string;
+  totalCases: number;
+  allMatch: boolean;
+  cases: BoundsCaseSummary[];
+}
+
+async function boundsProbe(options: BoundsProbeOptions): Promise<BoundsProbeResult> {
+  const assets = await getAssets(options.rigName);
+  const animName = options.animation ?? defaultAnimationFor(assets);
+  const mutant = options.mutant ?? 'none';
+
+  const rig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+  const bare = new RigPlayer(document.createElement('div'), assets, {
+    mode: assets.regions === 'none' ? 'canvas' : 'dom',
+  });
+
+  rig.play(animName);
+  bare.play(animName);
+
+  const slotNames = Array.from(new Set(rig.drawnFrame().order.map((s) => s.slot)));
+  const firstSlot = slotNames[0] ?? '';
+  const lastSlot = slotNames[slotNames.length - 1] ?? '';
+
+  const filters: Array<{ label: string; filter: SlotFilter | null }> = [
+    { label: 'all', filter: null },
+    { label: `only:[${firstSlot},${lastSlot}]`, filter: [firstSlot, lastSlot] },
+    { label: `hide:[${firstSlot}]`, filter: (slot: string) => slot !== firstSlot },
+    { label: 'only:[]', filter: [] },
+  ];
+
+  const cases: BoundsCaseSummary[] = [];
+  let allMatch = true;
+
+  for (const t of options.times) {
+    rig.seek(t);
+    bare.seek(t);
+
+    for (const { label, filter } of filters) {
+      rig.slots = mutant === 'ignore-filter' ? null : filter;
+      bare.slots = filter;
+
+      let rb = rig.bounds();
+      if (mutant === 'inflate-width' && rb !== null) {
+        rb = { ...rb, width: rb.width + 5 };
+      }
+      const bb = bare.bounds();
+      const matches = JSON.stringify(rb) === JSON.stringify(bb);
+      if (!matches) {
+        allMatch = false;
+      }
+      cases.push({
+        time: t,
+        filterLabel: label,
+        rigBounds: rb,
+        bareBounds: bb,
+        matches,
+      });
+    }
+  }
+
+  rig.destroy();
+  bare.dispose();
+
+  return {
+    rigName: options.rigName,
+    animation: animName,
+    totalCases: cases.length,
+    allMatch,
+    cases,
+  };
+}
+
+export interface PixiRigRefusalAndFreezeResult {
+  refusals: Array<{ name: string; threw: boolean; message: string }>;
+  frozenAssetsLifecycleSucceeded: boolean;
+}
+
+async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeResult> {
+  const walkAssets = await getAssets('walk');
+  const refusals: Array<{ name: string; threw: boolean; message: string }> = [];
+
+  const capture = (name: string, fn: () => void): void => {
+    let threw = false;
+    let message = '';
+    try {
+      fn();
+    } catch (err) {
+      threw = true;
+      message = err instanceof Error ? err.message : String(err);
+    }
+    refusals.push({ name, threw, message });
+  };
+
+  capture('invalid-assets', () => {
+    new PixiRig(null as unknown as ModelAssets);
+  });
+
+  capture('invalid-initial-timescale', () => {
+    new PixiRig(walkAssets, { timescale: -1 });
+  });
+
+  const rig = new PixiRig(walkAssets, { ticker: null, autoUpdate: false });
+
+  capture('unknown-animation', () => {
+    rig.play('nonexistent_animation_xyz');
+  });
+
+  capture('empty-animation-name', () => {
+    rig.play('');
+  });
+
+  capture('unknown-bone', () => {
+    rig.bone('nonexistent_bone_xyz');
+  });
+
+  capture('empty-bone-name', () => {
+    rig.bone('');
+  });
+
+  capture('negative-dt', () => {
+    rig.advance(-0.016);
+  });
+
+  capture('nan-dt', () => {
+    rig.advance(Number.NaN);
+  });
+
+  capture('nan-seek', () => {
+    rig.seek(Number.NaN);
+  });
+
+  capture('negative-timescale-setter', () => {
+    rig.timescale = -0.5;
+  });
+
+  rig.destroy();
+
+  capture('play-after-destroy', () => {
+    rig.play('walk');
+  });
+
+  capture('advance-after-destroy', () => {
+    rig.advance(0.016);
+  });
+
+  capture('seek-after-destroy', () => {
+    rig.seek(0.2);
+  });
+
+  capture('bone-after-destroy', () => {
+    rig.bone('root');
+  });
+
+  capture('bounds-after-destroy', () => {
+    rig.bounds();
+  });
+
+  // Verify that running a full PixiRig lifecycle over frozen ModelAssets and frozen PosedFrames mutates nothing.
+  let frozenAssetsLifecycleSucceeded = false;
+  const frozenAssets: ModelAssets = Object.freeze({
+    ...walkAssets,
+    document: Object.freeze({ ...walkAssets.document }),
+  });
+  const frozenRig = new PixiRig(frozenAssets, { ticker: null, autoUpdate: false });
+  frozenRig.play('walk');
+  frozenRig.advance(1 / 60);
+  frozenRig.seek(0.4);
+  const boneNames = readBoneNames(frozenRig);
+  const frame = frozenRig.drawnFrame();
+  Object.freeze(frame);
+  Object.freeze(frame.order);
+  for (const slot of frame.order) {
+    Object.freeze(slot);
+    if (slot.kind === 'region') {
+      Object.freeze(slot.corners);
+    } else {
+      Object.freeze(slot.vertices);
+    }
+  }
+  frozenRig.renderer.render(frame);
+  const b = frozenRig.bounds();
+  const rootBone = frozenRig.bone(boneNames[0] ?? 'root');
+  frozenRig.destroy();
+  if (b !== null && Number.isFinite(rootBone.x) && Number.isFinite(rootBone.y)) {
+    frozenAssetsLifecycleSucceeded = true;
+  }
+
+  return {
+    refusals,
+    frozenAssetsLifecycleSucceeded,
+  };
+}
+
 const harness = {
   BLEND_PIXI,
   inspectRigSlots,
@@ -1055,6 +1776,11 @@ const harness = {
   identityProbe,
   pmaProbe,
   refusalProbe,
+  parityProbe,
+  tickerProbe,
+  multiInstanceProbe,
+  boundsProbe,
+  pixiRigRefusalAndFreezeProbe,
 };
 
 declare global {

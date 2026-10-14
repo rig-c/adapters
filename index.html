@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@rig-c/adapters — PixiRig Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0e1116;
+        --panel: #161b22;
+        --border: #28303d;
+        --fg: #e6edf3;
+        --muted: #8b949e;
+        --accent: #58a6ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: var(--bg);
+        color: var(--fg);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 18px;
+        padding: 12px 20px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+      }
+      header strong {
+        font-size: 14px;
+        color: var(--accent);
+      }
+      label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+      }
+      select,
+      input[type='number'],
+      input[type='range'],
+      button {
+        font: inherit;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 4px 8px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        gap: 12px;
+      }
+      #pixi-stage {
+        width: 800px;
+        height: 600px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background:
+          linear-gradient(45deg, #141922 25%, transparent 25%),
+          linear-gradient(-45deg, #141922 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #141922 75%),
+          linear-gradient(-45deg, transparent 75%, #141922 75%);
+        background-size: 24px 24px;
+        background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+        background-color: #0d1117;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #status-bar {
+        width: 800px;
+        padding: 8px 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font-size: 12px;
+        color: var(--muted);
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>@rig-c/adapters — PixiRig</strong>
+      <label>
+        rig
+        <select id="rig-select">
+          <option value="walk">walk (gallery)</option>
+          <option value="flex">flex (gallery)</option>
+          <option value="ride">ride (gallery)</option>
+          <option value="figure">figure</option>
+          <option value="glow">glow</option>
+          <option value="turned">turned</option>
+          <option value="duo">duo</option>
+        </select>
+      </label>
+      <label>
+        anim
+        <select id="anim-select"></select>
+      </label>
+      <label>
+        time
+        <input id="time-input" type="number" step="0.05" min="0" value="0" style="width: 76px" />
+      </label>
+      <label>
+        timescale
+        <input id="timescale-input" type="number" step="0.25" min="0" value="1" style="width: 68px" />
+      </label>
+      <label>
+        instances
+        <input id="count-input" type="number" step="1" min="1" max="24" value="1" style="width: 58px" />
+      </label>
+      <button id="toggle-btn" type="button">Pause</button>
+    </header>
+    <main>
+      <div id="pixi-stage"></div>
+      <div id="status-bar">Loading rig…</div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
