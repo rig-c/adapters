@@ -1,6 +1,6 @@
 {
   "name": "@rig-c/three",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Play rig-c model documents in a native Three.js scene through @rig-c/play.",
   "type": "module",
   "license": "MIT",
