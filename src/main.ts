@@ -1,10 +1,17 @@
 import {
   loadModel,
+  RigPlayer,
   type ModelAssets,
   type PoseBounds,
   type PosedFrame,
 } from '@rig-c/play';
+import Phaser from 'phaser';
 import { Container, Ticker, WebGLRenderer } from 'pixi.js';
+import {
+  getPhaserLivePageTextureCount,
+  getPhaserPageRefCount,
+  PhaserRig,
+} from '@rig-c/phaser';
 import {
   getLivePageTextureCount,
   PixiRig,
@@ -12,6 +19,7 @@ import {
 } from '@rig-c/pixi';
 
 export interface RigAdaptersDemoState {
+  host?: 'pixi' | 'phaser';
   rigName: string;
   animName: string;
   time: number;
@@ -21,6 +29,7 @@ export interface RigAdaptersDemoState {
   drawnFrame: PosedFrame;
   resourceCounts: PixiRigResourceCounts;
   livePageTextures: number;
+  pageRefCounts?: number[];
   nonEmptyPixels: number;
 }
 
@@ -37,11 +46,15 @@ const STAGE_HEIGHT = 600;
 
 const assetsCache = new Map<string, ModelAssets>();
 
-async function getAssets(rigName: string): Promise<ModelAssets> {
-  const cached = assetsCache.get(rigName);
+async function getAssets(rigName: string, phaserMode = false): Promise<ModelAssets> {
+  const key = `${phaserMode ? 'phaser' : 'pixi'}:${rigName}`;
+  const cached = assetsCache.get(key);
   if (cached) return cached;
-  const assets = await loadModel({ modelUrl: `/rigs/${rigName}/skeleton.model.json` });
-  assetsCache.set(rigName, assets);
+  const assets = await loadModel({
+    modelUrl: `/rigs/${rigName}/skeleton.model.json`,
+    ...(phaserMode ? { regions: 'none' as const } : {}),
+  });
+  assetsCache.set(key, assets);
   return assets;
 }
 
@@ -49,7 +62,7 @@ function measureAnimationBounds(
   assets: ModelAssets,
   animName: string,
 ): PoseBounds {
-  const probe = new PixiRig(assets, { ticker: null, autoUpdate: false });
+  const probe = new RigPlayer(document.createElement('div'), assets, { mode: 'canvas' });
   probe.play(animName);
   const anim = assets.animations.find((a) => a.name === animName);
   const duration = anim ? anim.duration : 1;
@@ -70,7 +83,7 @@ function measureAnimationBounds(
     maxX = Math.max(maxX, b.x + b.width);
     maxY = Math.max(maxY, b.y + b.height);
   }
-  probe.destroy();
+  probe.dispose();
 
   if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
     return { x: -200, y: -200, width: 400, height: 400 };
@@ -83,11 +96,10 @@ function measureAnimationBounds(
   };
 }
 
-function positionRigsInStage(
-  rigs: readonly PixiRig[],
+function computeStagePlacement(
+  count: number,
   unionBounds: PoseBounds,
-): void {
-  const count = rigs.length;
+): Array<{ x: number; y: number; scale: number }> {
   const cols = Math.ceil(Math.sqrt(count));
   const rows = Math.ceil(count / cols);
   const cellW = STAGE_WIDTH / cols;
@@ -103,17 +115,44 @@ function positionRigsInStage(
     (cellH * 0.78) / unionBounds.height,
   );
 
+  const placements: Array<{ x: number; y: number; scale: number }> = [];
   for (let i = 0; i < count; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const centerX = (col + 0.5) * cellW;
     const centerY = (row + 0.5) * cellH;
+    placements.push({
+      x: centerX - worldCenterX * scale,
+      y: centerY - screenCenterY * scale,
+      scale,
+    });
+  }
+  return placements;
+}
+
+function positionRigsInStage(
+  rigs: readonly PixiRig[],
+  unionBounds: PoseBounds,
+): void {
+  const placements = computeStagePlacement(rigs.length, unionBounds);
+  for (let i = 0; i < rigs.length; i++) {
     const rig = rigs[i];
-    rig.scale.set(scale, scale);
-    rig.position.set(
-      centerX - worldCenterX * scale,
-      centerY - screenCenterY * scale,
-    );
+    const p = placements[i];
+    rig.scale.set(p.scale, p.scale);
+    rig.position.set(p.x, p.y);
+  }
+}
+
+function positionPhaserRigsInStage(
+  rigs: readonly PhaserRig[],
+  unionBounds: PoseBounds,
+): void {
+  const placements = computeStagePlacement(rigs.length, unionBounds);
+  for (let i = 0; i < rigs.length; i++) {
+    const rig = rigs[i];
+    const p = placements[i];
+    rig.setScale(p.scale, p.scale);
+    rig.setPosition(p.x, p.y);
   }
 }
 
@@ -130,7 +169,265 @@ function countNonEmptyPixels(renderer: WebGLRenderer): number {
   return nonEmpty;
 }
 
+function countCanvasPixels(canvas: HTMLCanvasElement): number {
+  const copy = document.createElement('canvas');
+  copy.width = canvas.width;
+  copy.height = canvas.height;
+  const ctx = copy.getContext('2d');
+  if (!ctx) return 0;
+  ctx.drawImage(canvas, 0, 0);
+  const data = ctx.getImageData(0, 0, copy.width, copy.height).data;
+  let nonEmpty = 0;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] > 0) nonEmpty++;
+  }
+  return nonEmpty;
+}
+
+async function bootPhaserDemo(params: URLSearchParams): Promise<void> {
+  const stageHost = document.getElementById('pixi-stage') as HTMLDivElement;
+  const statusBar = document.getElementById('status-bar') as HTMLDivElement;
+  const rigSelect = document.getElementById('rig-select') as HTMLSelectElement;
+  const animSelect = document.getElementById('anim-select') as HTMLSelectElement;
+  const timeInput = document.getElementById('time-input') as HTMLInputElement;
+  const timescaleInput = document.getElementById('timescale-input') as HTMLInputElement;
+  const countInput = document.getElementById('count-input') as HTMLInputElement;
+  const toggleBtn = document.getElementById('toggle-btn') as HTMLButtonElement;
+  const titleEl = document.querySelector('header strong');
+  if (titleEl) titleEl.textContent = '@rig-c/adapters — PhaserRig';
+  document.title = '@rig-c/adapters — PhaserRig Demo';
+
+  const rawRig = params.get('rig');
+  if (rawRig !== null && !(KNOWN_RIGS as readonly string[]).includes(rawRig)) {
+    throw new Error(`PhaserDemo: unsupported rig "${rawRig}" (expected one of ${KNOWN_RIGS.join(', ')})`);
+  }
+  const initialRig = rawRig ?? 'walk';
+  const requestedAnim = params.get('anim');
+  const rawTime = params.get('time');
+  if (rawTime !== null && (rawTime.trim() === '' || !Number.isFinite(Number(rawTime)) || Number(rawTime) < 0)) {
+    throw new Error(`PhaserDemo: invalid time="${rawTime}" (expected finite number >= 0)`);
+  }
+  const hasExplicitTime = rawTime !== null;
+  const initialTime = hasExplicitTime ? Number(rawTime) : 0;
+
+  const rawTimescale = params.get('timescale');
+  if (rawTimescale !== null && (rawTimescale.trim() === '' || !Number.isFinite(Number(rawTimescale)) || Number(rawTimescale) < 0)) {
+    throw new Error(`PhaserDemo: invalid timescale="${rawTimescale}" (expected finite number >= 0)`);
+  }
+  const initialTimescale = rawTimescale !== null ? Number(rawTimescale) : hasExplicitTime ? 0 : 1;
+
+  const rawCount = params.get('count');
+  if (rawCount !== null && (rawCount.trim() === '' || !Number.isInteger(Number(rawCount)) || Number(rawCount) < 1 || Number(rawCount) > 24)) {
+    throw new Error(`PhaserDemo: invalid count="${rawCount}" (expected integer in 1..24)`);
+  }
+  const initialCount = rawCount !== null ? Number(rawCount) : 1;
+
+  stageHost.innerHTML = '';
+  const { game, scene } = await new Promise<{ game: Phaser.Game; scene: Phaser.Scene }>((resolve) => {
+    const g = new Phaser.Game({
+      type: Phaser.WEBGL,
+      width: STAGE_WIDTH,
+      height: STAGE_HEIGHT,
+      parent: stageHost,
+      transparent: true,
+      banner: false,
+      audio: { noAudio: true },
+      render: { antialias: false, antialiasGL: false, roundPixels: false, preserveDrawingBuffer: true },
+      scene: {
+        key: 'phaser-demo',
+        create(this: Phaser.Scene) {
+          queueMicrotask(() => {
+            g.loop.stop();
+            resolve({ game: g, scene: this });
+          });
+        },
+      },
+    });
+  });
+
+  const nativeRenderer = game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+  let activeRigs: PhaserRig[] = [];
+  let activeAssets: ModelAssets | null = null;
+  let currentRigName = initialRig;
+  let currentAnimName = '';
+  let currentTimescale = initialTimescale;
+  let loadGeneration = 0;
+
+  function destroyActiveRigs(): void {
+    for (const rig of activeRigs) {
+      rig.destroy();
+    }
+    activeRigs = [];
+  }
+
+  function buildResourceCounts(primary: PhaserRig, assets: ModelAssets): PixiRigResourceCounts {
+    const frame = primary.drawnFrame();
+    const regions = frame.order.filter((s) => s.kind === 'region').length;
+    const meshes = frame.order.filter((s) => s.kind === 'mesh').length;
+    const masks = frame.order.filter((s) => s.clip !== undefined).length;
+    const pages = new Set(frame.order.map((s) => s.page)).size;
+    return {
+      sprites: regions,
+      meshes,
+      geometries: regions + meshes,
+      masks,
+      filters: 0,
+      textureViews: pages,
+      retainedPages: pages,
+      livePageTextures: getPhaserLivePageTextureCount(nativeRenderer),
+    };
+  }
+
+  function publishState(): void {
+    const primary = activeRigs[0];
+    if (!primary || !activeAssets) return;
+    const bounds = primary.bounds();
+    const counts = buildResourceCounts(primary, activeAssets);
+    const livePageTextures = getPhaserLivePageTextureCount(nativeRenderer);
+    const activePages = [...new Set(primary.drawnFrame().order.map((s) => s.page))];
+    const pageRefCounts = activePages.map((page) => getPhaserPageRefCount(nativeRenderer, activeAssets!.pageImages.get(page)!));
+    const nonEmptyPixels = countCanvasPixels(game.canvas);
+
+    window.__rigAdaptersDemo = {
+      host: 'phaser',
+      rigName: currentRigName,
+      animName: currentAnimName,
+      time: primary.time,
+      timescale: primary.timescale,
+      instanceCount: activeRigs.length,
+      bounds,
+      drawnFrame: primary.drawnFrame(),
+      resourceCounts: counts,
+      livePageTextures,
+      pageRefCounts,
+      nonEmptyPixels,
+    };
+
+    const boundsText = bounds
+      ? `bounds=(${bounds.x.toFixed(1)}, ${bounds.y.toFixed(1)}, ${bounds.width.toFixed(1)}×${bounds.height.toFixed(1)})`
+      : 'bounds=null';
+    statusBar.textContent =
+      `host=phaser  rig=${currentRigName}  anim=${currentAnimName}  t=${primary.time.toFixed(3)}s  ` +
+      `timescale=${primary.timescale}  instances=${activeRigs.length}  ` +
+      `regions=${counts.sprites}  meshes=${counts.meshes}  pageTextures=${livePageTextures}  ${boundsText}`;
+  }
+
+  async function loadScene(
+    rigName: string,
+    preferredAnim: string | null,
+    seekTime: number,
+    timescale: number,
+    instanceCount: number,
+  ): Promise<void> {
+    const myGen = ++loadGeneration;
+    document.body.dataset.demoReady = 'false';
+    destroyActiveRigs();
+
+    const assets = await getAssets(rigName, true);
+    if (myGen !== loadGeneration) return;
+
+    const animNames = assets.animations.map((a) => a.name);
+    if (preferredAnim !== null && !animNames.includes(preferredAnim)) {
+      throw new Error(`PhaserDemo: unsupported animation "${preferredAnim}" on rig "${rigName}" (expected one of ${animNames.join(', ')})`);
+    }
+    const chosenAnim = preferredAnim ?? (animNames[0] ?? '');
+
+    animSelect.innerHTML = '';
+    for (const name of animNames) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === chosenAnim) opt.selected = true;
+      animSelect.appendChild(opt);
+    }
+
+    activeAssets = assets;
+    currentRigName = rigName;
+    currentAnimName = chosenAnim;
+    currentTimescale = timescale;
+
+    const animDuration = assets.animations.find((a) => a.name === chosenAnim)?.duration ?? 1;
+    const unionBounds = measureAnimationBounds(assets, chosenAnim);
+
+    for (let i = 0; i < instanceCount; i++) {
+      const rig = new PhaserRig(scene, assets, { timescale, autoUpdate: true });
+      rig.play(chosenAnim);
+      const offset =
+        instanceCount > 1 && animDuration > 0
+          ? (seekTime + (i * animDuration) / instanceCount) % animDuration
+          : seekTime;
+      rig.seek(offset);
+      scene.add.existing(rig);
+      activeRigs.push(rig);
+    }
+
+    positionPhaserRigsInStage(activeRigs, unionBounds);
+    game.step(0, 0);
+    publishState();
+
+    rigSelect.value = rigName;
+    timeInput.value = seekTime.toFixed(2);
+    timescaleInput.value = String(timescale);
+    countInput.value = String(instanceCount);
+    toggleBtn.textContent = timescale === 0 ? 'Play' : 'Pause';
+
+    document.body.dataset.demoReady = 'true';
+  }
+
+  rigSelect.addEventListener('change', () => {
+    void loadScene(rigSelect.value, null, 0, currentTimescale, Math.max(1, Math.min(24, Number(countInput.value) || 1)));
+  });
+
+  animSelect.addEventListener('change', () => {
+    void loadScene(currentRigName, animSelect.value, 0, currentTimescale, activeRigs.length || 1);
+  });
+
+  timeInput.addEventListener('change', () => {
+    const t = Math.max(0, Number(timeInput.value) || 0);
+    for (const rig of activeRigs) rig.seek(t);
+    game.step(0, 0);
+    publishState();
+  });
+
+  timescaleInput.addEventListener('change', () => {
+    const ts = Math.max(0, Number(timescaleInput.value) || 0);
+    currentTimescale = ts;
+    for (const rig of activeRigs) rig.timescale = ts;
+    toggleBtn.textContent = ts === 0 ? 'Play' : 'Pause';
+    game.step(0, 0);
+    publishState();
+  });
+
+  countInput.addEventListener('change', () => {
+    const nextCount = Math.max(1, Math.min(24, Math.floor(Number(countInput.value) || 1)));
+    const primaryTime = activeRigs[0]?.time ?? 0;
+    void loadScene(currentRigName, currentAnimName, primaryTime, currentTimescale, nextCount);
+  });
+
+  toggleBtn.addEventListener('click', () => {
+    const nextTimescale = currentTimescale === 0 ? 1 : 0;
+    currentTimescale = nextTimescale;
+    timescaleInput.value = String(nextTimescale);
+    for (const rig of activeRigs) rig.timescale = nextTimescale;
+    toggleBtn.textContent = nextTimescale === 0 ? 'Play' : 'Pause';
+    game.step(0, 0);
+    publishState();
+  });
+
+  await loadScene(initialRig, requestedAnim, initialTime, initialTimescale, initialCount);
+}
+
 async function bootDemo(): Promise<void> {
+  const params = new URLSearchParams(window.location.search);
+  const host = params.get('host') ?? 'pixi';
+  if (host !== 'pixi' && host !== 'phaser') {
+    throw new Error(`RigAdaptersDemo: unsupported host "${host}" (expected "pixi" or "phaser")`);
+  }
+  if (host === 'phaser') {
+    await bootPhaserDemo(params);
+    return;
+  }
+
   const stageHost = document.getElementById('pixi-stage') as HTMLDivElement;
   const statusBar = document.getElementById('status-bar') as HTMLDivElement;
   const rigSelect = document.getElementById('rig-select') as HTMLSelectElement;
@@ -140,7 +437,6 @@ async function bootDemo(): Promise<void> {
   const countInput = document.getElementById('count-input') as HTMLInputElement;
   const toggleBtn = document.getElementById('toggle-btn') as HTMLButtonElement;
 
-  const params = new URLSearchParams(window.location.search);
   const requestedRig = params.get('rig') ?? 'walk';
   const initialRig = (KNOWN_RIGS as readonly string[]).includes(requestedRig)
     ? requestedRig
@@ -215,6 +511,7 @@ async function bootDemo(): Promise<void> {
     const nonEmptyPixels = countNonEmptyPixels(renderer);
 
     window.__rigAdaptersDemo = {
+      host: 'pixi',
       rigName: currentRigName,
       animName: currentAnimName,
       time: primary.time,
@@ -273,7 +570,7 @@ async function bootDemo(): Promise<void> {
     document.body.dataset.demoReady = 'false';
     destroyActiveRigs();
 
-    const assets = await getAssets(rigName);
+    const assets = await getAssets(rigName, false);
     const animNames = assets.animations.map((a) => a.name);
     const chosenAnim =
       preferredAnim && animNames.includes(preferredAnim)

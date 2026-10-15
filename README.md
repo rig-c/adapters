@@ -8,7 +8,7 @@ game already uses.
 | Package | Status |
 | --- | --- |
 | `@rig-c/pixi` | [0.1.0 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0), PixiJS 8 adapter; 0.x API |
-| `@rig-c/phaser` | Native region/mesh renderer prepared for Phaser 4.2+; first release follows the live-scene card |
+| `@rig-c/phaser` | 0.1.0 prepared for Phaser 4.2+ (`PhaserRig`, `PhaserRenderer`, shared page textures); 0.x API |
 | `@rig-c/three` | Planned |
 | Native engine bridges | Planned |
 
@@ -41,6 +41,32 @@ The model document and image pages come from `rigc build`, unmodified. Choose an
 animation name present in the model. `PixiRig` is a Pixi Container and owns its
 player/renderer resources; `PixiRenderer` is available when you own the player.
 Both `@rig-c/pixi` and `@rig-c/pixi/pixi` provide the same typed public exports.
+
+## Phaser usage
+
+```sh
+npm install @rig-c/phaser phaser @rig-c/play
+```
+
+```ts
+import { loadModel } from '@rig-c/play';
+import { PhaserRig } from '@rig-c/phaser';
+
+const assets = await loadModel({
+  modelUrl: '/rigs/walk/skeleton.model.json',
+  regions: 'none',
+});
+const rig = new PhaserRig(scene, assets);
+rig.setPosition(400, 480);
+rig.play('walk');
+scene.add.existing(rig);
+// On removal: rig.destroy(); assets.dispose();
+```
+
+`PhaserRig` is a Phaser Container owning its player/renderer resources while
+sharing reference-counted GPU page textures across instances over one
+`ModelAssets` load (`/?host=phaser` in the root demo); `PhaserRenderer` is
+available when you own the player.
 
 `bun install`, `bun run dev` runs the root demo; `bun run verify` builds every
 public library, checks tarballs/release discovery and installed smoke, then runs
