@@ -108,6 +108,9 @@ if original.exists():
     shutil.copyfile(original, out / 'bun.lock.before')
 run(['bun', 'install', '--frozen-lockfile'] if '--update-lock' not in os.sys.argv else ['bun', 'install'], 'install')
 shutil.copyfile(root / 'bun.lock', out / 'bun.lock')
+if '--update-oracle-lock' in os.sys.argv:
+    run(['bun', 'scripts/prepare-oracle.mjs', '--update-lock'], 'oracle-lock')
+    shutil.copyfile(root / 'tests/oracle/package-lock.json', out / 'oracle-package-lock.json')
 if '--prepare' not in os.sys.argv:
     focused = '--phaser-only' in os.sys.argv
     for script in ['build:libraries', 'typecheck', 'lint'] + ([] if focused else ['check:packages']):
@@ -116,7 +119,7 @@ if '--prepare' not in os.sys.argv:
     if not focused:
         run(['bun', 'run', 'check:release'], 'check-release')
         run(['bun', 'run', 'smoke'], 'installed-smoke')
-    run(['bun', 'run', 'test'] + (['packages/phaser/tests/phaser.spec.ts'] if '--phaser-only' in os.sys.argv else []), 'parity-suite')
+    run(['bun', 'run', 'test'] + (['packages/phaser/tests'] if '--phaser-only' in os.sys.argv else []), 'parity-suite')
     if (root / 'test-results').is_dir():
         shutil.copytree(root / 'test-results', out / 'test-results', dirs_exist_ok=True)
     # Preserve the gated library artifacts for review; none are published.
