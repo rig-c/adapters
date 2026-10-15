@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
@@ -8,7 +8,7 @@ import { publishable, root, run } from './workspaces.mjs';
 
 run('bun', ['run', 'fetch-assets']);
 for (const pkg of publishable()) {
-  const temp = mkdtempSync(join(tmpdir(), 'adapters-install-smoke-'));
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'adapters-install-smoke-')));
   let server;
   let browser;
   try {

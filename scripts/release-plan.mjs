@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { publishable, root, workspaces } from './workspaces.mjs';
+import { root, workspaces } from './workspaces.mjs';
 
 export function assertPublishable(pkg) {
   if (pkg.private === true) throw new Error(`PUBLISH_PRIVATE: ${pkg.name} is private and must never be published`);
@@ -21,9 +21,8 @@ export function releasePlan(paths, base = root) {
 }
 export function assertPublicationEnvironment(env = process.env) {
   if (env.ADAPTERS_PUBLISH_ENABLED !== 'true') throw new Error('PUBLISH_DISABLED: owner bootstrap/enable is required before npm publication');
-  if (!env.NODE_AUTH_TOKEN) throw new Error('PUBLISH_CREDENTIALS: NODE_AUTH_TOKEN is required for the selected release packages');
-  if (env.GITHUB_ACTIONS !== 'true' || !env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
-    throw new Error('PUBLISH_PROVENANCE: publication requires GitHub Actions with id-token:write and a public repository');
+  if (env.GITHUB_ACTIONS !== 'true' || env.RUNNER_ENVIRONMENT !== 'github-hosted' || !env.ACTIONS_ID_TOKEN_REQUEST_URL || !env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    throw new Error('PUBLISH_PROVENANCE: publication requires GitHub-hosted Actions OIDC request context from id-token:write');
   }
 }
 if (import.meta.main) {
