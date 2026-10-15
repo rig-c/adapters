@@ -1,3 +1,4 @@
+import * as liveHarness from './live-harness.ts';
 import * as meshHarness from './full-harness.ts';
 import { CanvasRenderer, loadModel, RigPlayer, type ModelAssets, type PosedFrame, type PosedRegion } from '@rig-c/play';
 import { fixtureModelUrl } from '@rig-c/adapters-shared/fixtures';
@@ -281,3 +282,6 @@ declare global { interface Window { phaserHarness: {
 
 window.phaserMeshHarness = meshHarness;
 declare global { interface Window { phaserMeshHarness: typeof meshHarness } }
+
+declare global { interface Window { phaserLiveHarness: typeof liveHarness } }
+window.phaserLiveHarness = liveHarness;

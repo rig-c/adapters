@@ -1,3 +1,4 @@
+import { retainPage, releasePage, type RetainedPage } from './pages.ts';
 import { clamp01 } from '@rig-c/adapters-shared';
 import type { BlendMode, ModelAssets, PosedFrame, PosedClip, PosedSlot } from '@rig-c/play';
 import { FrameSubmitter, type SlotView } from './mesh.ts';
@@ -50,15 +51,12 @@ export function tintToPhaser(tint: readonly [number, number, number, number]): {
   return { color: (r << 16) | (g << 8) | b, alpha: clamp01(tint[3]) };
 }
 
-let rendererId = 0;
-
 /** The actual native scene object, including its inspectable GPU wrappers. */
 export type PhaserRegionView = SlotView;
 
 /** Native PosedFrame drawing. The caller owns its container, scene and assets. */
 export class PhaserRenderer {
-  private readonly prefix = `rigc-phaser-${++rendererId}-`;
-  private readonly textures = new Map<string, string>();
+  private readonly textures = new Map<string, RetainedPage>();
   private readonly views = new Map<string, SlotView>();
   private readonly submitter: FrameSubmitter;
   private readonly blendModes: Record<BlendMode, number>;
@@ -80,19 +78,12 @@ export class PhaserRenderer {
 
   private pageTextureFor(slot: PosedSlot): string {
     const identity = `${slot.page}\u0000${slot.pma}`;
-    let key = this.textures.get(identity);
-    if (!key) {
-      key = this.prefix + this.textures.size;
-      const image = this.assets.pageImages.get(slot.page)!;
-      const gl = this.native.gl;
-      // Posed pma means already multiplied; native pma means multiply on upload.
-      const wrapper = this.native.createTexture2D(0, gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE, gl.RGBA, image, image.naturalWidth, image.naturalHeight, !slot.pma, false, true);
-      const texture = this.container.scene.textures.addGLTexture(key, wrapper);
-      if (!texture) { this.native.deleteTexture(wrapper); throw new Error(`PhaserRenderer: slot "${slot.slot}" page "${slot.page}" could not register texture "${key}"`); }
-      texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
-      this.textures.set(identity, key);
+    let entry = this.textures.get(identity);
+    if (!entry) {
+      entry = retainPage(this.native, this.container.scene.textures, this.assets.pageImages.get(slot.page)!, slot.pma, this);
+      this.textures.set(identity, entry);
     }
-    return key;
+    return entry.texture.key;
   }
 
   render(frame: PosedFrame): void {
@@ -173,7 +164,7 @@ export class PhaserRenderer {
     for (const pair of this.clips) { pair.close.destroy(); pair.open.destroy(); } this.clips = [];
     for (const view of this.views.values()) { this.submitter.remove(view); view.destroy(); } this.views.clear();
     this.submitter.dispose();
-    for (const key of this.textures.values()) this.container.scene.textures.remove(key);
+    for (const entry of new Set(this.textures.values())) releasePage(this.native, this.container.scene.textures, entry, this);
     this.textures.clear(); this.accepted = null; this.disposed = true;
   }
 }
