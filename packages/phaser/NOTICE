@@ -1,0 +1,4 @@
+This package draws rig-c model documents through Phaser and @rig-c/play.
+It includes no Spine runtime. Phaser and @rig-c/play are peer dependencies
+and retain their own licences. The private shared helpers are bundled.
+See LICENSE for this package.

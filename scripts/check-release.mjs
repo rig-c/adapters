@@ -148,7 +148,7 @@ try {
 
 
 
-  async function dryRun(changedPath) {
+  async function dryRun(changedPath, messages = ['fix: confined host dry-run control']) {
     const calls = [];
     // A bounded read-only SCM fixture supplies commits/files. The installed
     // release-please parser, manifest splitter and Node strategy produce the PR.
@@ -158,7 +158,7 @@ try {
       async getFileContentsOnBranch(file) { calls.push(`read:${file}`); const parsedContent = readFileSync(join(temp, file), 'utf8'); return { parsedContent, content: Buffer.from(parsedContent).toString('base64'), sha: 'fixture-file', mode: '100644' }; },
       async *releaseIterator() {},
       async *tagIterator() {},
-      async *mergeCommitIterator() { yield { sha: '1111111111111111111111111111111111111111', message: 'fix: confined host dry-run control', files: [`${changedPath}/src/index.ts`] }; },
+      async *mergeCommitIterator() { for (const [index, message] of messages.entries()) yield { sha: String(index + 1).repeat(40), message, files: [`${changedPath}/src/index.ts`] }; },
     }, { get(target, key) { if (key in target) return target[key]; throw new Error(`RELEASE_FIXTURE_UNEXPECTED_OPERATION: ${String(key)}`); } });
     const manifest = await Manifest.fromManifest(scm, 'main');
     const prs = await manifest.buildPullRequests();
@@ -171,6 +171,20 @@ try {
   }
   await dryRun('packages/pixi');
   await dryRun(path);
+  if (config.packages['packages/phaser']) {
+    // A new component's nonzero manifest seed is treated as a prior release.
+    // Keep the first release at 0.1.0 across the three held feature cards by
+    // preserving #17's Release-As footer in its real squash commit.
+    const firstPhaser = await dryRun('packages/phaser', [
+      'feat: live Phaser scene object',
+      'feat: remaining Phaser frame fields',
+      'feat: native Phaser region renderer\n\nRelease-As: 0.1.0',
+    ]);
+    assert.equal(firstPhaser[0].version, '0.1.0', 'PHASER_FIRST_RELEASE: three held feature commits must propose exactly 0.1.0');
+    const withoutFooter = await dryRun('packages/phaser', ['feat: native Phaser region renderer']);
+    assert.notEqual(withoutFooter[0].version, '0.1.0', 'PHASER_FIRST_RELEASE_MUTANT: missing release footer must expose the manifest-seed bump');
+    console.log('[phaser:bar7:first-release] actual Manifest: three Phaser feat commits + Release-As -> Phaser-only 0.1.0; missing footer mutant RED; workflows unchanged; PASS');
+  }
   // Adversarial absence: unrelated root docs must release neither component.
   const emptyScm = {
     repository: { owner: 'rig-c', repo: 'adapters', defaultBranch: 'main' },
