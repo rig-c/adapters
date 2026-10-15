@@ -1,0 +1,39 @@
+{
+  "name": "@rig-c/three",
+  "version": "0.1.0",
+  "description": "Play rig-c model documents in a native Three.js scene through @rig-c/play.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rig-c/adapters.git",
+    "directory": "packages/three"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "three": "^0.186.1",
+    "@rig-c/play": "^1.10.0"
+  },
+  "devDependencies": {
+    "@rig-c/adapters-shared": "workspace:*",
+    "@types/three": "0.186.0"
+  },
+  "scripts": {
+    "build": "bun ../../scripts/build-packages.mjs --package packages/three"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -30,7 +30,9 @@
     "pixi.js": "8.22.0",
     "@rig-c/pixi": "workspace:*",
     "phaser": "4.2.1",
-    "@rig-c/phaser": "workspace:*"
+    "@rig-c/phaser": "workspace:*",
+    "three": "0.186.1",
+    "@rig-c/three": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
@@ -42,7 +44,8 @@
     "vite": "^6.0.0",
     "tsup": "^8.5.0",
     "release-please": "^17.1.3",
-    "yaml": "^2.8.1"
+    "yaml": "^2.8.1",
+    "@types/three": "0.186.0"
   },
   "workspaces": [
     "packages/*"

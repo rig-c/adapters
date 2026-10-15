@@ -187,6 +187,13 @@ try {
     assert.notEqual(withoutFooter[0].version, '0.1.0', 'PHASER_FIRST_RELEASE_MUTANT: missing release footer must expose the manifest-seed bump');
     console.log('[phaser:bar7:first-release] actual Manifest: three Phaser feat commits + Release-As -> Phaser-only 0.1.0; missing footer mutant RED; workflows unchanged; PASS');
   }
+  if (config.packages['packages/three']) {
+    const firstThree = await dryRun('packages/three', ['feat(three): native renderer and live rig\n\nRelease-As: 0.1.0']);
+    assert.equal(firstThree[0].version, '0.1.0', 'THREE_FIRST_RELEASE: the first host release must propose exactly 0.1.0');
+    const withoutFooter = await dryRun('packages/three', ['feat(three): native renderer and live rig']);
+    assert.notEqual(withoutFooter[0].version, '0.1.0', 'THREE_FIRST_RELEASE_MUTANT: missing release footer must expose the manifest-seed bump');
+    console.log('[three:bar6:first-release] actual Manifest: Three-only 0.1.0 with Release-As; missing footer mutant RED; workflows unchanged; PASS');
+  }
   // Adversarial absence: unrelated root docs must release neither component.
   const emptyScm = {
     repository: { owner: 'rig-c', repo: 'adapters', defaultBranch: 'main' },

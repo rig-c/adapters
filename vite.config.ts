@@ -14,10 +14,10 @@ export default defineConfig(({ command }) => {
     // The demo is a source consumer in development, so first dev and HMR need
     // no preceding library build. Production/installed smoke use package exports.
     resolve: command === 'serve' ? {
-      alias: [{ find: /^@rig-c\/pixi(?:\/pixi)?$/, replacement: resolve('packages/pixi/src/index.ts') }],
+      alias: [{ find: /^@rig-c\/pixi(?:\/pixi)?$/, replacement: resolve('packages/pixi/src/index.ts') }, { find: '@rig-c/three', replacement: resolve('packages/three/src/index.ts') }],
     } : undefined,
     build: {
-      rollupOptions: { input: { main: 'index.html', ...harnesses } },
+      rollupOptions: { input: { main: 'index.html', threeDemo: 'three-demo.html', ...harnesses } },
     },
   };
 });
