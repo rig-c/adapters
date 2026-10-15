@@ -6,8 +6,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rig-c/adapters.git",
+    "url": "git+https://github.com/rig-c/adapters.git",
     "directory": "packages/phaser"
+  },
+  "homepage": "https://github.com/rig-c/adapters/tree/main/packages/phaser#readme",
+  "bugs": {
+    "url": "https://github.com/rig-c/adapters/issues"
   },
   "exports": {
     ".": {
