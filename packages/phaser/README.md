@@ -2,9 +2,13 @@
 
 Play a rig that `rigc build` wrote inside a Phaser 4.2+ WebGL scene through `@rig-c/play`'s core, with no Spine runtime.
 
+## Install
+
 ```sh
 npm install @rig-c/phaser phaser @rig-c/play
 ```
+
+## Minimal usage
 
 ```ts
 import { loadModel } from '@rig-c/play';
@@ -44,4 +48,4 @@ Load the model and page images `rigc build` wrote, unchanged (`regions: 'none'` 
 
 Convex, concave and inverse `PosedClip` polygons use native stencil layers, including a shared clip around the entire rig. PMA pages remain premultiplied; straight pages are multiplied once on upload. Page identities with different PMA interpretation receive separate native textures. Malformed data is refused by slot/page name before the accepted frame changes. This native `UNSIGNED_SHORT` path supports at most 65,535 vertices per mesh (indices 0 through 65,534; index 65,535 is reserved primitive restart in WebGL2).
 
-`BLEND_PHASER` documents the four premultiplied RGB/alpha blend-factor tuples; `tintToPhaser` exposes the RGB8 inspection value and scalar alpha; `readRegionScreenCorners` and `readMeshScreenVertices` read native geometry after transform/draw.
+`BLEND_PHASER` documents the four premultiplied RGB/alpha blend-factor tuples; `tintToPhaser` exposes the RGB8 inspection value and scalar alpha; `readRegionScreenCorners` and `readMeshScreenVertices` read native geometry after transform/draw. See [`packages/phaser` in the repository](https://github.com/rig-c/adapters/tree/main/packages/phaser) for the demo and parity suite.

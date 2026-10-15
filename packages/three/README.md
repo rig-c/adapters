@@ -4,10 +4,14 @@ Draw a rig-c model in a native Three.js scene through `@rig-c/play`. `ThreeRig`
 is a flat `Group`: each drawn slot is a `Mesh` with native float32 geometry,
 with one shared shader material per page per instance. It poses no bones itself.
 
+## Install
+
 ```sh
 npm install @rig-c/three three @rig-c/play
 npm install --save-dev @types/three
 ```
+
+## Minimal usage
 
 ```ts
 import { loadModel } from '@rig-c/play';
@@ -36,7 +40,7 @@ requestAnimationFrame(frame);
 ```
 
 Use the model document and image pages from `rigc build`, unchanged. Tested with
-Three.js **0.186.1** and play **1.10.0**. The API is 0.x.
+Three.js **0.186.1** and play **1.10.0**. The API is 0.x. See [`packages/three` in the repository](https://github.com/rig-c/adapters/tree/main/packages/three) for source and parity tests.
 
 ## Live object
 
