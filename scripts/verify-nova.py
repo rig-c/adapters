@@ -72,6 +72,8 @@ def run(args, name):
     budget['peakTreeRssBytes'] = max(peak, budget['peakTreeRssBytes'])
     persist()
     if rejected or code != 0:
+        if (root / 'test-results').is_dir():
+            shutil.copytree(root / 'test-results', out / 'test-results', dirs_exist_ok=True)
         print((out / (name + '.stdout')).read_text()[-5000:], flush=True)
         print((out / (name + '.stderr')).read_text()[-5000:], flush=True)
         raise RuntimeError(f'{name}: exit {code}, guard rejected={rejected}')
@@ -107,12 +109,16 @@ if original.exists():
 run(['bun', 'install', '--frozen-lockfile'] if '--update-lock' not in os.sys.argv else ['bun', 'install'], 'install')
 shutil.copyfile(root / 'bun.lock', out / 'bun.lock')
 if '--prepare' not in os.sys.argv:
-    for script in ['build:libraries', 'typecheck', 'lint', 'check:packages']:
+    focused = '--phaser-only' in os.sys.argv
+    for script in ['build:libraries', 'typecheck', 'lint'] + ([] if focused else ['check:packages']):
         run(['bun', 'run', script], script.replace(':', '-'))
     run(['bunx', '--no-install', 'playwright', 'install', 'chromium', 'webkit'], 'browser-install')
-    run(['bun', 'run', 'check:release'], 'check-release')
-    run(['bun', 'run', 'smoke'], 'installed-smoke')
-    run(['bun', 'run', 'test'], 'parity-suite')
+    if not focused:
+        run(['bun', 'run', 'check:release'], 'check-release')
+        run(['bun', 'run', 'smoke'], 'installed-smoke')
+    run(['bun', 'run', 'test'] + (['packages/phaser/tests/phaser.spec.ts'] if '--phaser-only' in os.sys.argv else []), 'parity-suite')
+    if (root / 'test-results').is_dir():
+        shutil.copytree(root / 'test-results', out / 'test-results', dirs_exist_ok=True)
     # Preserve the gated library artifacts for review; none are published.
     with tarfile.open(out / 'library-artifacts.tar.gz', 'w:gz') as bundle:
         for package in sorted((root / 'packages').iterdir()):

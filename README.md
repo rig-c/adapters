@@ -8,7 +8,7 @@ game already uses.
 | Package | Status |
 | --- | --- |
 | `@rig-c/pixi` | [0.1.0 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0), PixiJS 8 adapter; 0.x API |
-| `@rig-c/phaser` | Planned |
+| `@rig-c/phaser` | Region renderer prepared for Phaser 4.2+; first release follows the live-scene card |
 | `@rig-c/three` | Planned |
 | Native engine bridges | Planned |
 
@@ -80,8 +80,7 @@ is already the source, and Spine is one export of it.
      inside 3D scenes and interactive pages.
 
    **PixiJS is first** (decided 2026-10-15): it is a renderer, so the adapter touches
-   the smallest surface (display object, ticker, texture, mesh), and Phaser is built
-   on it, so the Phaser adapter is the next step rather than a second start.
+   the smallest surface (display object, ticker, texture, mesh), and Phaser follows with a native renderer on its own WebGL engine.
 2. **Native engines later** (Godot, Unity, …). These need the poser in the engine's
    language, so they come after the web adapters prove the model document is enough.
 

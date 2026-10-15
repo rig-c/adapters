@@ -28,7 +28,9 @@
   "dependencies": {
     "@rig-c/play": "1.10.0",
     "pixi.js": "8.22.0",
-    "@rig-c/pixi": "workspace:*"
+    "@rig-c/pixi": "workspace:*",
+    "phaser": "4.2.1",
+    "@rig-c/phaser": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
