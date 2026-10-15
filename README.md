@@ -8,7 +8,7 @@ game already uses.
 | Package | Status |
 | --- | --- |
 | `@rig-c/pixi` | [0.1.0 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0), PixiJS 8 adapter; 0.x API |
-| `@rig-c/phaser` | Region renderer prepared for Phaser 4.2+; first release follows the live-scene card |
+| `@rig-c/phaser` | Native region/mesh renderer prepared for Phaser 4.2+; first release follows the live-scene card |
 | `@rig-c/three` | Planned |
 | Native engine bridges | Planned |
 

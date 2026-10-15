@@ -87,3 +87,15 @@ package command `npm publish --access public --provenance --ignore-scripts` from
 `packages/pixi`. After any first publication, the owner confirms the version
 is available on npm and bootstraps the matching host tag/release before normal
 release bumps.
+
+## Development-only independent raster oracle
+
+The Phaser mesh tests reuse play's unchanged official raster adapter from commit
+`e23405131a3bc43a9934dfe7131e62aee1b0bab2` in `tests/oracle`. Its private package is
+not a workspace and is excluded from every host package. `bun run typecheck` and
+the test site's prebuild install its pinned runtime with `npm ci --ignore-scripts`
+using its own committed lockfile; the first run therefore needs network access.
+Failure is an error, never an oracle SKIP. The normal host graph remains runtime
+free and the package and installed-consumer gates inspect that graph separately.
+To intentionally regenerate the isolated lock, use the guarded Nova runner's
+`--update-oracle-lock` preparation and retrieve `oracle-package-lock.json`.

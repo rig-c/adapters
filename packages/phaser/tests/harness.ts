@@ -1,22 +1,23 @@
+import * as meshHarness from './full-harness.ts';
 import { CanvasRenderer, loadModel, RigPlayer, type ModelAssets, type PosedFrame, type PosedRegion } from '@rig-c/play';
 import { fixtureModelUrl } from '@rig-c/adapters-shared/fixtures';
 import Phaser from 'phaser';
 import { BLEND_PHASER, PhaserRenderer, type PhaserRegionView, readRegionScreenCorners, tintToPhaser } from '../src/index.ts';
 
 const assetsCache = new Map<string, Promise<ModelAssets>>();
-function assetsFor(rig: string): Promise<ModelAssets> {
+export function assetsFor(rig: string): Promise<ModelAssets> {
   let promise = assetsCache.get(rig);
   if (!promise) { promise = loadModel({ modelUrl: fixtureModelUrl(rig) }); assetsCache.set(rig, promise); }
   return promise;
 }
 
 let gamePromise: Promise<{ game: Phaser.Game; scene: Phaser.Scene }> | undefined;
-function gameFor(): Promise<{ game: Phaser.Game; scene: Phaser.Scene }> {
+export function gameFor(): Promise<{ game: Phaser.Game; scene: Phaser.Scene }> {
   return gamePromise ??= new Promise((resolve) => {
     const game = new Phaser.Game({
       type: Phaser.WEBGL, width: 800, height: 600, transparent: true,
       audio: { noAudio: true }, banner: false,
-      render: { antialias: false, roundPixels: false, preserveDrawingBuffer: true },
+      render: { antialias: false, antialiasGL: false, roundPixels: false, preserveDrawingBuffer: true },
       scene: { create(this: Phaser.Scene) { queueMicrotask(() => { game.loop.stop(); resolve({ game, scene: this }); }); } },
     });
   });
@@ -37,8 +38,7 @@ async function regionFrame(rig: string, time: number): Promise<{ assets: ModelAs
 }
 
 function views(root: Phaser.GameObjects.Container): PhaserRegionView[] {
-  return root.list.map((child) => {
-    if (!(child instanceof Phaser.GameObjects.Mesh2D)) throw new Error(`HARNESS_CHILD: expected Mesh2D, found ${child.type}`);
+  return root.list.filter((child) => child instanceof Phaser.GameObjects.Mesh2D).map((child) => {
     return child as PhaserRegionView;
   });
 }
@@ -106,7 +106,7 @@ async function geometryProbe(rig: string, time: number, mutant: 'none' | 'shift-
   } finally { renderer.dispose(); root.destroy(); }
 }
 
-function composite(canvas: HTMLCanvasElement): string {
+export function composite(canvas: HTMLCanvasElement): string {
   const target = document.createElement('canvas'); target.width = canvas.width; target.height = canvas.height;
   const ctx = target.getContext('2d'); if (!ctx) throw new Error('HARNESS_CONTEXT: 2d context absent');
   ctx.fillStyle = '#14161a'; ctx.fillRect(0, 0, target.width, target.height); ctx.drawImage(canvas, 0, 0);
@@ -170,9 +170,9 @@ async function refusalProbe() {
     { name: 'missing-page', slot: { ...source, slot: 'missing-page', page: 'absent.png' } },
     { name: 'mesh', slot: { ...source, slot: 'mesh', kind: 'mesh' } },
     { name: 'kind', slot: { ...source, slot: 'kind', kind: 'point' } },
-    { name: 'clip', slot: { ...source, slot: 'clip', clip: { polygon: [0, 0, 1, 0, 0, 1], inverse: false, convex: true } } },
-    { name: 'dark', slot: { ...source, slot: 'dark', dark: [0, 0, 0] } },
-    { name: 'pma', slot: { ...source, slot: 'pma', pma: true } },
+    { name: 'clip', slot: { ...source, slot: 'clip', clip: { polygon: [0, 0, 1, 0], inverse: false, convex: true } } },
+    { name: 'dark', slot: { ...source, slot: 'dark', dark: [NaN, 0, 0] } },
+    { name: 'pma', slot: { ...source, slot: 'pma', pma: 'invalid' } },
     { name: 'blend', slot: { ...source, slot: 'blend', blend: 'Subtract' } },
     { name: 'corners', slot: { ...source, slot: 'corners', corners: [NaN, ...source.corners.slice(1)] } },
     { name: 'uvs', slot: { ...source, slot: 'uvs', uvs: [] } },
@@ -278,3 +278,6 @@ window.phaserHarness = { storageProbe, geometryProbe, pictureProbe, refusalProbe
 declare global { interface Window { phaserHarness: {
   storageProbe: typeof storageProbe; geometryProbe: typeof geometryProbe; pictureProbe: typeof pictureProbe; refusalProbe: typeof refusalProbe; coexistenceProbe: typeof coexistenceProbe; transparentPaddingProbe: typeof transparentPaddingProbe;
 }; } }
+
+window.phaserMeshHarness = meshHarness;
+declare global { interface Window { phaserMeshHarness: typeof meshHarness } }

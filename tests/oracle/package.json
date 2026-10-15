@@ -1,0 +1,8 @@
+{
+  "name": "adapter-official-oracle-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@esotericsoftware/spine-webgl": "4.3.13"
+  }
+}

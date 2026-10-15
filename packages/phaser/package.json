@@ -1,7 +1,7 @@
 {
   "name": "@rig-c/phaser",
   "version": "0.1.0",
-  "description": "Draw rig-c posed region frames in Phaser 4 through @rig-c/play.",
+  "description": "Draw rig-c posed frames in Phaser 4 through @rig-c/play.",
   "type": "module",
   "license": "MIT",
   "repository": {

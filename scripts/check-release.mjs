@@ -106,6 +106,8 @@ try {
     const dependencies = join(pkg.dir, 'node_modules');
     if (existsSync(dependencies)) symlinkSync(dependencies, join(temp, pkg.path, 'node_modules'), 'dir');
   }
+  const oracleDependencies = join(root, 'tests/oracle/node_modules');
+  if (existsSync(oracleDependencies)) symlinkSync(oracleDependencies, join(temp, 'tests/oracle/node_modules'), 'dir');
   const discovery = run('bunx', ['--no-install', 'playwright', 'test', '--list', '--config', join(temp, 'playwright.config.ts')], { cwd: temp });
   assert(discovery.includes('second host production harness'), 'SECOND_HOST_CI: parity suite not discovered');
   assert(discovery.includes('[chromium]') && discovery.includes('[webkit]'), 'SECOND_HOST_CI: both browsers not discovered');

@@ -1,6 +1,6 @@
 # @rig-c/phaser
 
-A native Phaser 4.2+ WebGL renderer of `@rig-c/play`'s `PosedFrame` region slots.
+A native Phaser 4.2+ WebGL renderer of `@rig-c/play`'s `PosedFrame` regions and meshes.
 The first release is held until the complete renderer and live-scene cards land.
 
 ```ts
@@ -24,18 +24,28 @@ assets.dispose();
 
 Load the model and page images `rigc build` wrote, unchanged. The caller owns
 the scene, player, container and ModelAssets. The renderer creates native
-`Phaser.GameObjects.Mesh2D` quads in the supplied container's child order,
-samples full-page UVs, maps world `(x, y)` to scene `(x, -y)`, and uses Phaser's
-tint, opacity and blend modes. It registers its own page textures and removes
+`Phaser.GameObjects.Mesh2D` objects in the supplied container's child order,
+samples full-page UVs, maps world `(x, y)` to scene `(x, -y)`, and submits persistent native position, UV and element buffers through a Phaser
+RenderNode. Light/dark tint uses the record’s full float precision, and native
+container opacity applies once. It registers its own page textures and removes
 them on `dispose`; it never disposes the shared input assets or images.
-Each region completes its native Phaser batch so that its page texture state
-stays isolated from other scene objects. The engine's texture limit is unchanged;
-this phase uses one native draw per region rather than batching several pages.
+Each slot completes its native draw independently; the engine texture limit and
+ordinary scene objects keep their own settings. Unchanged UV and triangle array
+identities upload zero new static bytes, independently of position updates.
+Held Float32 positions upload zero bytes too. A changed UV array leaves the
+index buffer intact, and a changed triangle array leaves the UV buffer intact.
 
-This phase accepts regions only. Mesh slots, clip polygons, dark colour and
-premultiplied pages are refused by slot/page name, before the last accepted
-frame changes. For a mixed rig, select the intended region names explicitly
-using `player.posedFrame(names)`; the renderer never silently drops slots.
+Convex, concave and inverse `PosedClip` polygons use native stencil layers,
+including a shared clip around the entire rig. Their hard geometry is independent
+of parent opacity, and the matching subtract operation restores previous stencil
+layers. Numerically equal clips retain their helper objects. PMA pages remain
+premultiplied; straight pages are multiplied once on upload. Page identities with
+different PMA interpretation receive separate native textures.
+
+Malformed data is refused by slot/page name before the accepted frame changes.
+This native UNSIGNED_SHORT path supports at most 65,535 vertices per mesh
+(indices 0 through 65,534); index 65,535 is reserved primitive restart in WebGL2.
+`drawnFrame` exposes the exact accepted record for consumer integration.
 
 `BLEND_PHASER` documents the four premultiplied RGB/alpha blend-factor tuples;
 the renderer reuses matching native presets and registers native custom modes
@@ -43,12 +53,14 @@ for Phaser presets whose factors differ. One registry belongs to each engine;
 ordinary Phaser blend presets remain unchanged. Transparent additive padding
 must preserve the pixel beneath it exactly, checked against the original page's
 zero-alpha texels with a native ADD-preset negative control.
-`tintToPhaser` converts RGB to
-Phaser RGB8 and preserves scalar alpha. `readRegionScreenCorners` reads native
+`tintToPhaser` exposes the RGB8 inspection value and preserves scalar alpha;
+the actual shader retains the original light/dark RGB values. `readRegionScreenCorners` reads native
 mesh vertices through the native world matrix, for a default unscrolled scene
-camera. Container transforms map the rig into that scene. Camera effects and
+camera. `readMeshScreenVertices` reads the actual Float32 native position buffer after
+a completed draw. Container transforms map the rig into that scene. Camera effects and
 screenspace presentation remain the consumer's responsibility.
 
 The parity suite compares native object geometry to that record, and pictures
 to CanvasRenderer in the same Chromium/WebKit browser with planted failures.
-No runtime from the skeleton export format is needed or linked.
+The independent official raster oracle is development-only and isolated under
+`tests/oracle`; no skeleton-format runtime is needed or linked by this package.
