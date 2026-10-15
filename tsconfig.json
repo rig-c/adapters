@@ -21,6 +21,9 @@
       "@rig-c/pixi/pixi": [
         "./packages/pixi/src/index.ts"
       ],
+      "@rig-c/phaser": [
+        "./packages/phaser/src/index.ts"
+      ],
       "@rig-c/three": [
         "./packages/three/src/index.ts"
       ]
