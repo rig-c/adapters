@@ -41,33 +41,49 @@ not a substitute implementation of release selection.
 
 ## Publication boundary
 
-The first publish is the owner's action with npm 2FA. This change runs no
-`npm publish`. Publication remains disabled until the owner sets the repository
-variable `ADAPTERS_PUBLISH_ENABLED=true`; release PRs and plans can run beforehand.
-Enabled publication with missing NPM_TOKEN fails as `PUBLISH_CREDENTIALS`.
-All automated publications use `--provenance` in the GitHub Actions `npm`
-environment with `id-token: write`, for this public repository. The owner checks
-package contents/version, npm scope rights, 2FA and the environment/secrets before
-that enable step. Never add a credential to a file or command line.
+The first publish and publication enable step are the owner's actions. Verification
+runs no real `npm publish`. Publication remains disabled until the owner sets the
+repository variable `ADAPTERS_PUBLISH_ENABLED=true`; release PRs and plans can run
+beforehand.
+Automated publication uses npm trusted publishing without an npm token secret.
+The workflow grants `id-token: write`, runs on GitHub-hosted `ubuntu-latest`,
+and installs npm 11.5.1 on Node 22. npm requires Node >=22.14.0 and npm >=11.5.1
+for [trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+Enabled execution missing GitHub-hosted Actions OIDC request context fails as
+`PUBLISH_PROVENANCE` before invoking npm. The preflight checks context presence;
+npm verifies the real token and configured publisher during publication.
+The release check uses a confined npm stub to verify both refusal and the
+token-free command path; it does not exchange an OIDC token or publish a package.
 
-For the current package, build/check first and stop for the owner:
+`@rig-c/pixi` 0.1.0 is already bootstrapped on npm and in the
+[`pixi-v0.1.0` GitHub release](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0).
+Its next release uses the trusted-publishing workflow after the owner enables the
+gate; do not repeat the initial 0.1.0 publication.
+
+For a new, unpublished host package, build/check first and stop for the owner:
 
 ```sh
 bun install --frozen-lockfile
 bun run build:libraries
 bun run check:packages
 bun run smoke
-cd packages/pixi
-npm publish --access public --ignore-scripts
 ```
 
-The final line is the owner-only first local publication and prompts for npm 2FA;
-local publication does not claim npm provenance. To obtain provenance on the
-first release, the owner instead configures the GitHub Actions npm environment
-and NPM_TOKEN, enables publication, and manually dispatches the `release` workflow
-on `main` with `publish_packages=["packages/pixi"]`. The workflow runs the exact
+From that unpublished host's package directory, the owner may run
+`npm publish --access public --ignore-scripts` for its first local publication
+with npm 2FA; local publication does not claim npm provenance. For automated
+publication, the owner configures the package's npm trusted publisher
+for GitHub organization `rig-c`, repository `adapters`, workflow filename
+`release.yml` and environment `npm`, allowing direct `npm publish`. The workflow
+and environment names must match the run's identity; each new host package needs
+its own trusted publisher. After checking package contents/version, scope rights
+and the GitHub `npm` environment, the owner enables publication. Subsequent merged
+release PRs select all released host paths through the same pipeline.
+The owner-only `workflow_dispatch` on `main` can bootstrap a new host or retry
+a released version that npm has not received; `publish_packages` is a JSON array
+of those workspace paths. It must not select an already published version.
+For Pixi, the workflow runs the exact
 package command `npm publish --access public --provenance --ignore-scripts` from
-`packages/pixi`. Subsequent merged release PRs select all released host paths
-through the same pipeline. The owner must confirm 0.1.0 is available on npm before
-treating installation examples as published, and should bootstrap the GitHub tag
-`pixi-v0.1.0`/release to match the first npm version before normal release bumps.
+`packages/pixi`. After any first publication, the owner confirms the version
+is available on npm and bootstraps the matching host tag/release before normal
+release bumps.

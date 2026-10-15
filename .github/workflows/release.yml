@@ -65,17 +65,15 @@ jobs:
         with:
           node-version: '22'
           registry-url: https://registry.npmjs.org
-      - name: Require publication credentials
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Use npm with trusted publishing support
         run: |
-          test -n "$NODE_AUTH_TOKEN" || { echo 'PUBLISH_CREDENTIALS: NPM_TOKEN is required for enabled publication' >&2; exit 1; }
+          npm install -g npm@11.5.1
+          npm --version
       - run: bun install --frozen-lockfile
       - run: bun run build:libraries
       - run: bun run check:packages
       - name: Publish released package with provenance
         env:
           ADAPTERS_PUBLISH_ENABLED: ${{ vars.ADAPTERS_PUBLISH_ENABLED }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_PATH: ${{ matrix.package.path }}
         run: bun scripts/release-plan.mjs "$(jq -nc --arg path "$PACKAGE_PATH" '[$path]')" --execute

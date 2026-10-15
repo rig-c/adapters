@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { Manifest } from 'release-please';
@@ -14,18 +14,71 @@ assert.deepEqual(Object.keys(config.packages).sort(), publishable().map((pkg) =>
 for (const pkg of publishable()) assert.equal(versions[pkg.path], pkg.version, `RELEASE_VERSION: ${pkg.path}`);
 assert.equal(config['separate-pull-requests'], true, 'RELEASE_SEPARATE: package PRs must be independent');
 const release = parse(readFileSync(join(root, '.github/workflows/release.yml'), 'utf8'));
-assert.equal(release.jobs.publish.if.includes("vars.ADAPTERS_PUBLISH_ENABLED == 'true'"), true, 'RELEASE_GATE: owner enable required');
-assert.equal(release.jobs.publish.strategy.matrix.package.includes('needs.plan.outputs.packages'), true, 'RELEASE_MATRIX: published packages must come from the dynamic plan');
-assert.equal(release.jobs.publish.permissions['id-token'], 'write', 'RELEASE_PROVENANCE: id-token permission absent');
+function assertPublicationWorkflow(workflow) {
+  const publish = workflow.jobs.publish;
+  assert.equal(publish.if.includes("vars.ADAPTERS_PUBLISH_ENABLED == 'true'"), true, 'RELEASE_GATE: owner enable required');
+  assert.equal(publish.strategy.matrix.package.includes('needs.plan.outputs.packages'), true, 'RELEASE_MATRIX: published packages must come from the dynamic plan');
+  assert.equal(publish.permissions['id-token'], 'write', 'RELEASE_PROVENANCE: id-token permission absent');
+  assert.equal(publish['runs-on'], 'ubuntu-latest', 'RELEASE_RUNNER: trusted publishing requires a GitHub-hosted runner');
+  assert.equal(publish.environment, 'npm', 'RELEASE_ENVIRONMENT: trusted publisher identity uses the npm environment');
+  assert(publish.steps.some((step) => step.uses?.startsWith('actions/setup-node@') && step.with['node-version'] === '22'), 'RELEASE_NODE: Node 22 setup absent');
+  assert(publish.steps.some((step) => step.run?.includes('npm install -g npm@11.5.1')), 'RELEASE_NPM: trusted publishing requires npm >= 11.5.1');
+  assert.doesNotMatch(JSON.stringify(publish), /NPM_TOKEN|NODE_AUTH_TOKEN/, 'RELEASE_TOKEN: publication must not depend on npm token secrets');
+}
+assertPublicationWorkflow(release);
+// This is a context fixture, not an OIDC exchange. npm verifies the real token
+// and trusted publisher identity only during an owner-authorized publication.
+const oidc = { ADAPTERS_PUBLISH_ENABLED: 'true', GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://example.invalid/oidc', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'context-fixture' };
+assert.doesNotThrow(() => assertPublicationEnvironment(oidc));
 assert.throws(() => assertPublicationEnvironment({}), /PUBLISH_DISABLED/);
-assert.throws(() => assertPublicationEnvironment({ ADAPTERS_PUBLISH_ENABLED: 'true' }), /PUBLISH_CREDENTIALS/);
+assert.throws(() => assertPublicationEnvironment({ ...oidc, ADAPTERS_PUBLISH_ENABLED: 'false' }), /PUBLISH_DISABLED/);
+assert.throws(() => assertPublicationEnvironment({ ADAPTERS_PUBLISH_ENABLED: 'true' }), /PUBLISH_PROVENANCE/);
 assert.throws(() => assertPublicationEnvironment({ ADAPTERS_PUBLISH_ENABLED: 'true', NODE_AUTH_TOKEN: 'fixture' }), /PUBLISH_PROVENANCE/);
+assert.throws(() => assertPublicationEnvironment({ ...oidc, RUNNER_ENVIRONMENT: 'self-hosted' }), /PUBLISH_PROVENANCE/);
+for (const field of ['GITHUB_ACTIONS', 'RUNNER_ENVIRONMENT', 'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN']) {
+  const missing = { ...oidc };
+  delete missing[field];
+  assert.throws(() => assertPublicationEnvironment(missing), /PUBLISH_PROVENANCE/, `RELEASE_OIDC: missing ${field} must refuse`);
+}
 assert.throws(() => releasePlan(['packages/shared']), /PUBLISH_PRIVATE/);
 assert.throws(() => releasePlan(['packages/missing']), /RELEASE_PATH/);
-const gateMutant = structuredClone(release);
-gateMutant.jobs.publish.if = "needs.plan.outputs.packages != '[]'";
-assert.throws(() => assert.equal(gateMutant.jobs.publish.if.includes("vars.ADAPTERS_PUBLISH_ENABLED == 'true'"), true));
-console.log('[bar6:publication-gates] disabled, enabled/no credentials, absent provenance, private/unknown path refused; gate-removal mutant RED; PASS');
+for (const [name, mutate, refusal] of [
+  ['owner gate removal', (workflow) => { workflow.jobs.publish.if = "needs.plan.outputs.packages != '[]'"; }, /RELEASE_GATE/],
+  ['OIDC permission removal', (workflow) => { delete workflow.jobs.publish.permissions['id-token']; }, /RELEASE_PROVENANCE/],
+  ['self-hosted runner', (workflow) => { workflow.jobs.publish['runs-on'] = 'self-hosted'; }, /RELEASE_RUNNER/],
+  ['npm downgrade', (workflow) => { workflow.jobs.publish.steps.find((step) => step.run?.includes('npm install -g')).run = 'npm install -g npm@10'; }, /RELEASE_NPM/],
+  ['token dependency', (workflow) => { workflow.jobs.publish.steps.at(-1).env.NODE_AUTH_TOKEN = '${{ secrets.NPM_TOKEN }}'; }, /RELEASE_TOKEN/],
+]) {
+  const mutant = structuredClone(release);
+  mutate(mutant);
+  assert.throws(() => assertPublicationWorkflow(mutant), refusal, `RELEASE_MUTANT: ${name}`);
+}
+console.log('[bar6:publication-gates] disabled, self-hosted and each absent OIDC field refused; token-free context fixture accepted; private/unknown path refused; gate/OIDC/runner/npm/token mutants RED; PASS');
+
+const publication = mkdtempSync(join(tmpdir(), 'adapters-publication-'));
+try {
+  const calls = join(publication, 'calls.json');
+  const npm = join(publication, 'npm');
+  writeFileSync(npm, '#!/usr/bin/env bun\nimport { writeFileSync } from "node:fs";\nwriteFileSync(process.env.PUBLICATION_CALLS, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd() }));\n');
+  chmodSync(npm, 0o755);
+  const env = { ...process.env, PATH: `${publication}:${process.env.PATH}`, PUBLICATION_CALLS: calls };
+  for (const field of [...Object.keys(oidc), 'NODE_AUTH_TOKEN', 'NPM_TOKEN']) delete env[field];
+  const execute = (context) => Bun.spawnSync([process.execPath, join(root, 'scripts/release-plan.mjs'), '["packages/pixi"]', '--execute'], { env: { ...env, ...context }, stdout: 'pipe', stderr: 'pipe' });
+  const missingRunner = { ...oidc };
+  delete missingRunner.RUNNER_ENVIRONMENT;
+  for (const [context, refusal] of [[{}, /PUBLISH_DISABLED/], [{ ADAPTERS_PUBLISH_ENABLED: 'true' }, /PUBLISH_PROVENANCE/], [missingRunner, /PUBLISH_PROVENANCE/], [{ ...oidc, RUNNER_ENVIRONMENT: 'self-hosted' }, /PUBLISH_PROVENANCE/]]) {
+    const result = execute(context);
+    assert.notEqual(result.exitCode, 0, 'RELEASE_EXECUTE: invalid context must fail');
+    assert.match(result.stderr.toString(), refusal);
+    assert.equal(existsSync(calls), false, 'RELEASE_EXECUTE: refused publication must not invoke npm');
+  }
+  const result = execute(oidc);
+  assert.equal(result.exitCode, 0, result.stderr.toString());
+  assert.deepEqual(JSON.parse(readFileSync(calls, 'utf8')), { args: ['publish', '--access', 'public', '--provenance', '--ignore-scripts'], cwd: resolve(root, 'packages/pixi') });
+  console.log('[bar6:publication-execute] disabled/absent OIDC/missing runner/self-hosted stop before npm; token-free fixture invokes confined npm stub with public/provenance flags from packages/pixi; no real publication; PASS');
+} finally {
+  rmSync(publication, { recursive: true, force: true });
+}
 
 const temp = mkdtempSync(join(tmpdir(), 'adapters-second-host-'));
 try {

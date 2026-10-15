@@ -3,11 +3,11 @@
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
 
-**Status: publication prepared; first npm publish remains the owner's action.**
+**Status: PixiJS 0.1.0 published; automated publication remains owner-gated.**
 
 | Package | Status |
 | --- | --- |
-| `@rig-c/pixi` | 0.1.0 prepared, PixiJS 8 adapter; 0.x API |
+| `@rig-c/pixi` | [0.1.0 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0), PixiJS 8 adapter; 0.x API |
 | `@rig-c/phaser` | Planned |
 | `@rig-c/three` | Planned |
 | Native engine bridges | Planned |
@@ -17,8 +17,6 @@ workspace is bundled into host libraries and is never published. One manifest
 release pipeline discovers every host; no engine is added merely by listing it.
 
 ## PixiJS usage
-
-After the owner confirms the first version is available on npm:
 
 ```sh
 npm install @rig-c/pixi pixi.js @rig-c/play
@@ -49,8 +47,10 @@ public library, checks tarballs/release discovery and installed smoke, then runs
 the existing chromium + webkit parity suite. Public fixture recipes are built by
 root `scripts/fetch-assets.sh` and shared comparison helpers live in
 `packages/shared`. See [adding a host](docs/ADDING_A_HOST.md) for workspace/release
-steps and the exact owner-only first-publish commands. Publication is initially
-disabled; enabled publication with missing credentials fails by name.
+steps and the owner-only first-publish procedure for new hosts. Automated
+publication is disabled behind the owner-controlled `ADAPTERS_PUBLISH_ENABLED` gate. It
+uses npm trusted publishing without an npm token secret; enabled
+execution missing GitHub Actions OIDC context fails by name before invoking npm.
 
 
 ## Why this exists
