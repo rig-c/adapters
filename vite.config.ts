@@ -20,10 +20,11 @@ export default defineConfig(({ command }) => {
       alias: [
         { find: /^@rig-c\/pixi(?:\/pixi)?$/, replacement: resolve('packages/pixi/src/index.ts') },
         { find: /^@rig-c\/phaser$/, replacement: resolve('packages/phaser/src/index.ts') },
+        { find: /^@rig-c\/three$/, replacement: resolve('packages/three/src/index.ts') },
       ],
     } : undefined,
     build: {
-      rollupOptions: { input: { main: 'index.html', ...harnesses } },
+      rollupOptions: { input: { main: 'index.html', threeDemo: 'three-demo.html', ...harnesses } },
     },
   };
 });

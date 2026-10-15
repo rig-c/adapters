@@ -9,7 +9,7 @@ game already uses.
 | --- | --- |
 | `@rig-c/pixi` | [0.1.0 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0), PixiJS 8 adapter; 0.x API |
 | `@rig-c/phaser` | 0.1.0 prepared for Phaser 4.2+ (`PhaserRig`, `PhaserRenderer`, shared page textures); 0.x API |
-| `@rig-c/three` | Planned |
+| `@rig-c/three` | Native Three.js 0.186.1 renderer and live Group; first release follows its acceptance card |
 | Native engine bridges | Planned |
 
 Each host is independently versioned in `packages/<host>`. The private shared
@@ -68,7 +68,8 @@ sharing reference-counted GPU page textures across instances over one
 `ModelAssets` load (`/?host=phaser` in the root demo); `PhaserRenderer` is
 available when you own the player.
 
-`bun install`, `bun run dev` runs the root demo; `bun run verify` builds every
+`bun install`, `bun run dev` runs the root demo; the [Three.js demo](three-demo.html)
+provides orthographic and perspective scenes. `bun run verify` builds every
 public library, checks tarballs/release discovery and installed smoke, then runs
 the existing chromium + webkit parity suite. Public fixture recipes are built by
 root `scripts/fetch-assets.sh` and shared comparison helpers live in

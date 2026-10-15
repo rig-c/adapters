@@ -10,6 +10,9 @@
     },
     "packages/phaser": {
       "component": "phaser"
+    },
+    "packages/three": {
+      "component": "three"
     }
   }
 }

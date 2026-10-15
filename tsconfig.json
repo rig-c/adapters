@@ -23,6 +23,9 @@
       ],
       "@rig-c/phaser": [
         "./packages/phaser/src/index.ts"
+      ],
+      "@rig-c/three": [
+        "./packages/three/src/index.ts"
       ]
     }
   },

@@ -1,4 +1,5 @@
 {
   "packages/pixi": "0.1.0",
-  "packages/phaser": "0.1.0"
+  "packages/phaser": "0.1.0",
+  "packages/three": "0.1.0"
 }

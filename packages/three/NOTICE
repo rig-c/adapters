@@ -1,0 +1,5 @@
+@rig-c/three is MIT licensed. It requires Three.js and @rig-c/play as peer
+dependencies. It reads rig-c model documents and links no Spine runtime.
+Shared workspace helpers, when used, are bundled into host libraries; the private
+@rig-c/adapters-shared workspace is not published. See LICENSE for this package's
+licence and each dependency's licence for its own terms.
