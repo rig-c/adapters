@@ -42,9 +42,9 @@ not a substitute implementation of release selection.
 ## Publication boundary
 
 The first publish and publication enable step are the owner's actions. Verification
-runs no real `npm publish`. Publication remains disabled until the owner sets the
+runs no real `npm publish`. Publication requires the owner-controlled
 repository variable `ADAPTERS_PUBLISH_ENABLED=true`; release PRs and plans can run
-beforehand.
+while publication is disabled.
 Automated publication uses npm trusted publishing without an npm token secret.
 The workflow grants `id-token: write`, runs on GitHub-hosted `ubuntu-latest`,
 and installs npm 11.5.1 on Node 22. npm requires Node >=22.14.0 and npm >=11.5.1
@@ -57,8 +57,8 @@ token-free command path; it does not exchange an OIDC token or publish a package
 
 `@rig-c/pixi` 0.1.0 is already bootstrapped on npm and in the
 [`pixi-v0.1.0` GitHub release](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0).
-Its next release uses the trusted-publishing workflow after the owner enables the
-gate; do not repeat the initial 0.1.0 publication.
+Subsequent releases use the trusted-publishing workflow, subject to the owner-controlled
+gate; do not repeat an already published version.
 
 For a new, unpublished host package, build/check first and stop for the owner:
 

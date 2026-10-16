@@ -6,8 +6,8 @@ repository is public; so is everything written to it.
 ## What this is
 
 An adapter plays a rig that `rigc build` wrote inside a host renderer or engine,
-through `@rig-c/play`'s core, with no Spine runtime. The first host is **PixiJS**
-(a renderer, the smallest surface to touch); Phaser comes next with its own WebGL renderer.
+through `@rig-c/play`'s core, with no Spine runtime. The first host was **PixiJS**
+(a renderer, the smallest surface to touch); Phaser and Three.js now have their own native renderers.
 Issues carry the work: each one states the decision, why, the bars it is held
 to, and what is out of scope. An issue is the whole brief — nothing agreed in a
 conversation counts until it is written there.
