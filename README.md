@@ -3,13 +3,13 @@
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
 
-**Status: PixiJS 0.1.0 published; automated publication remains owner-gated.**
+**Status: PixiJS, Phaser and Three.js adapters 0.1.1 released on 2026-10-15; 0.x APIs.**
 
 | Package | Status |
 | --- | --- |
-| `@rig-c/pixi` | [0.1.0 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.0), PixiJS 8 adapter; 0.x API |
-| `@rig-c/phaser` | 0.1.0 prepared for Phaser 4.2+ (`PhaserRig`, `PhaserRenderer`, shared page textures); 0.x API |
-| `@rig-c/three` | Native Three.js 0.186.1 renderer and live Group; first release follows its acceptance card |
+| `@rig-c/pixi` | [0.1.1 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.1), PixiJS 8 adapter; 0.x API |
+| `@rig-c/phaser` | [0.1.1 released](https://github.com/rig-c/adapters/releases/tag/phaser-v0.1.1), Phaser 4.2+ (`PhaserRig`, `PhaserRenderer`, shared page textures); 0.x API |
+| `@rig-c/three` | [0.1.1 released](https://github.com/rig-c/adapters/releases/tag/three-v0.1.1), native Three.js 0.186.1 renderer and live Group; 0.x API |
 | Native engine bridges | Planned |
 
 Each host is independently versioned in `packages/<host>`. The private shared
@@ -75,7 +75,7 @@ the existing chromium + webkit parity suite. Public fixture recipes are built by
 root `scripts/fetch-assets.sh` and shared comparison helpers live in
 `packages/shared`. See [adding a host](docs/ADDING_A_HOST.md) for workspace/release
 steps and the owner-only first-publish procedure for new hosts. Automated
-publication is disabled behind the owner-controlled `ADAPTERS_PUBLISH_ENABLED` gate. It
+publication is guarded by the owner-controlled `ADAPTERS_PUBLISH_ENABLED` gate. It
 uses npm trusted publishing without an npm token secret; enabled
 execution missing GitHub Actions OIDC context fails by name before invoking npm.
 
@@ -83,7 +83,7 @@ execution missing GitHub Actions OIDC context fails by name before invoking npm.
 ## Why this exists
 
 rig-c compiles a rig into two things side by side: Spine 4.3 skeleton data, and its own
-**model document** (`skeleton.model.json`). Today a rig reaches a game in one of two ways:
+**model document** (`skeleton.model.json`). Alongside the adapters, a rig reaches a game in two other ways:
 
 - **@rig-c/play** plays the model document in a web page, as DOM elements or one canvas.
   No Spine runtime is involved.
@@ -99,15 +99,15 @@ is already the source, and Spine is one export of it.
 ## Scope, in order
 
 1. **On the web first.** The adapter wraps @rig-c/play's core poser and draws through
-   the host's own renderer. The candidates are not all engines, and that matters for
+   the host's own renderer. These hosts are not all engines, and that matters for
    what an adapter must bring:
    - **Phaser**: a 2D game engine (scenes, input, physics, audio, loader).
    - **PixiJS**: a 2D renderer; games and engines are built on top of it.
-   - **Three.js**: a 3D renderer, not a game engine. It would be for 2D characters
+   - **Three.js**: a 3D renderer, not a game engine. It is for 2D characters
      inside 3D scenes and interactive pages.
 
-   **PixiJS is first** (decided 2026-10-15): it is a renderer, so the adapter touches
-   the smallest surface (display object, ticker, texture, mesh), and Phaser follows with a native renderer on its own WebGL engine.
+   **PixiJS came first** (decided 2026-10-15): it is a renderer, so the adapter touches
+   the smallest surface (display object, ticker, texture, mesh), and Phaser now has a native renderer on its own WebGL engine.
 2. **Native engines later** (Godot, Unity, …). These need the poser in the engine's
    language, so they come after the web adapters prove the model document is enough.
 
