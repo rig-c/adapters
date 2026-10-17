@@ -68,6 +68,15 @@ sharing reference-counted GPU page textures across instances over one
 `ModelAssets` load (`/?host=phaser` in the root demo); `PhaserRenderer` is
 available when you own the player.
 
+`bun run example:look` opens [`examples/look/`](examples/look/index.html), a
+1080p pointer-follow page on `@rig-c/pixi`: eyes follow the pointer at once,
+head yaw/pitch/roll and body follow on a critically-damped spring, `idle` runs
+underneath for blink and breath, and hair physics react to head angular
+velocity. The page never hardcodes a degree — it reads the rig's own declared
+slider ranges (`yaw`, `pitch`, `roll`, `body`, `eye_x`, `eye_y`) from
+`skeleton.model.json`, and renders static with one warning if a rig without a
+`yaw` dial is loaded.
+
 `bun install`, `bun run dev` runs the root demo; the [Three.js demo](three-demo.html)
 provides orthographic and perspective scenes. `bun run verify` builds every
 public library, checks tarballs/release discovery and installed smoke, then runs
