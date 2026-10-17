@@ -15,6 +15,20 @@ export interface FrameTimingReport {
   readonly meanMs: number;
 }
 
+export interface PoseInspection {
+  readonly bones: Record<string, { x: number; y: number; rotationX: number }>;
+  readonly slotBounds: Record<string, { minX: number; minY: number; maxX: number; maxY: number }>;
+}
+
+export interface ThreeAdapterVerificationReport {
+  readonly cornersChecked: number;
+  readonly maxBoneDiff: number;
+  readonly pixiOrderCount: number;
+  readonly phaserOrderCount: number;
+  readonly threeOrderCount: number;
+  readonly cameraFixed: boolean;
+}
+
 export interface LookDemoApi {
   readonly ready: boolean;
   readonly modelUrl: string;
@@ -36,6 +50,8 @@ export interface LookDemoApi {
     dials: LookDials | null;
   }>;
   countNonEmptyPixels(): number;
+  inspectPose(boneNames?: readonly string[]): PoseInspection;
+  verifyThreeAdapters(): Promise<ThreeAdapterVerificationReport>;
 }
 
 declare global {
@@ -49,38 +65,20 @@ const STAGE_WIDTH = 1920;
 const STAGE_HEIGHT = 1080;
 const DEFAULT_MODEL_URL = '/examples/look/rig/skeleton.model.json';
 
-function frameRigInStage(rig: PixiRig, viewMode: string | null): void {
+function frameRigInStage(rig: PixiRig): void {
   const bounds = rig.bounds();
   if (!bounds) {
     rig.position.set(STAGE_WIDTH * 0.5, STAGE_HEIGHT * 0.85);
     return;
   }
-  if (viewMode === 'full') {
-    const scale = Math.min(
-      (STAGE_WIDTH * 0.82) / Math.max(1, bounds.width),
-      (STAGE_HEIGHT * 0.88) / Math.max(1, bounds.height),
-    );
-    const cx = bounds.x + bounds.width * 0.5;
-    const cy = -(bounds.y + bounds.height * 0.5);
-    rig.scale.set(scale, scale);
-    rig.position.set(STAGE_WIDTH * 0.5 - cx * scale, STAGE_HEIGHT * 0.5 - cy * scale);
-    return;
-  }
-
-  // Portrait/bust framing centred on the head, eyes, hair, and breathing chest
-  // while keeping the entire rig in the PixiJS display list at 1080p.
-  let focusX = bounds.x + bounds.width * 0.5;
-  let focusY = bounds.y + bounds.height * 0.78;
-  try {
-    const headBone = rig.bone('head');
-    focusX = headBone.x;
-    focusY = headBone.y - 10;
-  } catch {
-    // Rig without a 'head' bone falls back to upper bounds centre.
-  }
-  const scale = Math.min(1.55, (STAGE_HEIGHT * 1.42) / Math.max(1, bounds.height));
+  const scale = Math.min(
+    (STAGE_WIDTH * 0.82) / Math.max(1, bounds.width),
+    (STAGE_HEIGHT * 0.88) / Math.max(1, bounds.height),
+  );
+  const cx = bounds.x + bounds.width * 0.5;
+  const cy = -(bounds.y + bounds.height * 0.5);
   rig.scale.set(scale, scale);
-  rig.position.set(STAGE_WIDTH * 0.5 - focusX * scale, STAGE_HEIGHT * 0.52 + focusY * scale);
+  rig.position.set(STAGE_WIDTH * 0.5 - cx * scale, STAGE_HEIGHT * 0.5 - cy * scale);
 }
 
 function updateHud(
@@ -106,7 +104,6 @@ function updateHud(
 async function bootLookDemo(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const initialModelUrl = params.get('rig') ?? DEFAULT_MODEL_URL;
-  const viewMode = params.get('view');
   const manualMode = params.get('manual') === '1';
 
   const stageHost = document.getElementById('look-stage') as HTMLDivElement;
@@ -151,7 +148,7 @@ async function bootLookDemo(): Promise<void> {
     });
     stage.addChild(rig);
     const ctrl = new LookController(rig, assets);
-    frameRigInStage(rig, viewMode);
+    frameRigInStage(rig);
     renderer.render({ container: stage });
 
     currentAssets = assets;
@@ -295,6 +292,207 @@ async function bootLookDemo(): Promise<void> {
         if (pixels[i] > 0) nonEmpty++;
       }
       return nonEmpty;
+    },
+    inspectPose(
+      boneNames = [
+        'head',
+        'head_ctl',
+        'neck',
+        'chest_ctl',
+        'eye_r',
+        'eye_l',
+        'iris_r',
+        'iris_l',
+        'brow_r',
+        'brow_l',
+        'nose',
+        'mouth',
+        'ear_r',
+        'ear_l',
+      ],
+    ): PoseInspection {
+      if (!currentRig) {
+        return { bones: {}, slotBounds: {} };
+      }
+      const bones: Record<string, { x: number; y: number; rotationX: number }> = {};
+      for (const name of boneNames) {
+        try {
+          const b = currentRig.bone(name);
+          bones[name] = { x: b.x, y: b.y, rotationX: b.rotationX };
+        } catch {
+          // Ignore bones absent on alternate rigs.
+        }
+      }
+      const slotBounds: Record<string, { minX: number; minY: number; maxX: number; maxY: number }> =
+        {};
+      const frame = currentRig.posedFrame();
+      for (const slot of frame.order) {
+        const pts = slot.kind === 'region' ? slot.corners : slot.vertices;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (let i = 0; i < pts.length; i += 2) {
+          const px = pts[i]!;
+          const py = pts[i + 1]!;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
+        if (Number.isFinite(minX)) {
+          slotBounds[slot.slot] = { minX, minY, maxX, maxY };
+        }
+      }
+      return { bones, slotBounds };
+    },
+    async verifyThreeAdapters(): Promise<ThreeAdapterVerificationReport> {
+      if (!currentAssets || !currentRig || !controller || !controller.dialResult.ok) {
+        throw new Error('LookDemo: rig not ready for adapter verification');
+      }
+      const dials = controller.dialResult.dials;
+      const initialPos = {
+        x: currentRig.position.x,
+        y: currentRig.position.y,
+        sx: currentRig.scale.x,
+        sy: currentRig.scale.y,
+        rot: currentRig.rotation,
+      };
+
+      const [{ default: Phaser }, { PhaserRig }, THREE, { ThreeRig }] = await Promise.all([
+        import('phaser'),
+        import('@rig-c/phaser'),
+        import('three'),
+        import('@rig-c/three'),
+      ]);
+
+      const phaserHost = document.createElement('div');
+      phaserHost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:256px;height:256px;';
+      document.body.appendChild(phaserHost);
+
+      let activeScene: Phaser.Scene | null = null;
+      const game = await new Promise<Phaser.Game>((resolveGame) => {
+        class ProbeScene extends Phaser.Scene {
+          constructor() {
+            super({ key: 'LookProbeScene' });
+          }
+          create(): void {
+            activeScene = this;
+            resolveGame(this.game);
+          }
+        }
+        new Phaser.Game({
+          type: Phaser.WEBGL,
+          width: 256,
+          height: 256,
+          parent: phaserHost,
+          banner: false,
+          audio: { noAudio: true },
+          scene: [ProbeScene],
+        });
+      });
+
+      const phaserRig = new PhaserRig(activeScene!, currentAssets, { autoUpdate: false });
+      activeScene!.add.existing(phaserRig);
+
+      const threeRenderer = new THREE.WebGLRenderer({ antialias: false });
+      threeRenderer.setSize(256, 256, false);
+      const threeScene = new THREE.Scene();
+      const threeCamera = new THREE.OrthographicCamera(-500, 500, 1200, 0, -1000, 1000);
+      const threeRig = new ThreeRig(currentAssets, { renderer: threeRenderer });
+      threeScene.add(threeRig);
+
+      const testPixiRig = new PixiRig(currentAssets, { ticker: null, autoUpdate: false });
+
+      let cornerFx = 0;
+      let cornerFy = 0;
+      const applyCorner = (bones: import('@rig-c/play').AdjustableBones): void => {
+        bones.bone(dials.yawBone).rotation = dials.yawSign * cornerFx * dials.Y;
+        if (dials.pitchBone) {
+          bones.bone(dials.pitchBone).rotation = dials.pitchSign * cornerFy * dials.P;
+        }
+        if (dials.rollBone) {
+          bones.bone(dials.rollBone).rotation = cornerFx * cornerFy * -dials.R;
+        }
+        if (dials.bodyBone) {
+          bones.bone(dials.bodyBone).rotation = cornerFx * dials.B;
+        }
+        if (dials.eyeXBone) {
+          bones.bone(dials.eyeXBone).rotation = cornerFx * dials.eyeXRange;
+        }
+        if (dials.eyeYBone) {
+          bones.bone(dials.eyeYBone).rotation = cornerFy * dials.eyeYRange;
+        }
+      };
+
+      testPixiRig.adjust = applyCorner;
+      phaserRig.player.adjust = applyCorner;
+      threeRig.player.adjust = applyCorner;
+
+      testPixiRig.play('idle', { loop: true });
+      phaserRig.play('idle', { loop: true });
+      threeRig.play('idle', { loop: true });
+
+      const corners: Array<readonly [number, number]> = [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ];
+      const probeBones = ['head', 'nose', 'eye_r', 'eye_l', 'iris_r', 'iris_l', 'mouth'];
+      let maxBoneDiff = 0;
+      let pixiOrderCount = 0;
+      let phaserOrderCount = 0;
+      let threeOrderCount = 0;
+
+      for (const [fx, fy] of corners) {
+        cornerFx = fx;
+        cornerFy = fy;
+        testPixiRig.advance(1 / 60);
+        phaserRig.advance(1 / 60);
+        threeRig.advance(1 / 60);
+        threeRenderer.render(threeScene, threeCamera);
+
+        pixiOrderCount = testPixiRig.drawnFrame().order.length;
+        phaserOrderCount = phaserRig.drawnFrame().order.length;
+        threeOrderCount = threeRig.drawnFrame().order.length;
+
+        for (const bName of probeBones) {
+          const bp = testPixiRig.bone(bName);
+          const bph = phaserRig.bone(bName);
+          const bt = threeRig.bone(bName);
+          const diff = Math.max(
+            Math.abs(bp.x - bph.x),
+            Math.abs(bp.y - bph.y),
+            Math.abs(bp.x - bt.x),
+            Math.abs(bp.y - bt.y),
+          );
+          if (diff > maxBoneDiff) maxBoneDiff = diff;
+        }
+      }
+
+      testPixiRig.destroy();
+      phaserRig.destroy();
+      game.destroy(true);
+      phaserHost.remove();
+      threeRig.destroy();
+      threeRenderer.dispose();
+
+      const cameraFixed =
+        currentRig.position.x === initialPos.x &&
+        currentRig.position.y === initialPos.y &&
+        currentRig.scale.x === initialPos.sx &&
+        currentRig.scale.y === initialPos.sy &&
+        currentRig.rotation === initialPos.rot;
+
+      return {
+        cornersChecked: corners.length,
+        maxBoneDiff,
+        pixiOrderCount,
+        phaserOrderCount,
+        threeOrderCount,
+        cameraFixed,
+      };
     },
   };
 
