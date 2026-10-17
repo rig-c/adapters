@@ -2,6 +2,15 @@ import type { CompiledDocument } from 'rig-c/core';
 import type { AdjustableBones, ModelAssets } from '@rig-c/play';
 import type { PixiRig } from '@rig-c/pixi';
 
+export interface LookBandMap {
+  readonly yaw: readonly [number, number];
+  readonly pitch: readonly [number, number];
+  readonly roll: readonly [number, number];
+  readonly body: readonly [number, number];
+  readonly gazeX: readonly [number, number];
+  readonly gazeY: readonly [number, number];
+}
+
 export interface LookDials {
   /** Declared head yaw amplitude in degrees (`head yaw = fx * Y`). */
   readonly Y: number;
@@ -20,15 +29,25 @@ export interface LookDials {
   /** Sign aligning positive `headPitch` (`+fy`) with viewer-up (`+y`). */
   readonly pitchSign: 1 | -1;
   readonly yawBone: string;
+  readonly yawProperty: string;
   readonly pitchBone: string | null;
+  readonly pitchProperty: string;
   readonly rollBone: string | null;
+  readonly rollProperty: string;
   readonly rollDirectBone: string | null;
   readonly bodyBone: string | null;
+  readonly bodyProperty: string;
   readonly bodyDirectBone: string | null;
   readonly eyeXBone: string | null;
+  readonly eyeXProperty: string;
   readonly eyeYBone: string | null;
+  readonly eyeYProperty: string;
   readonly eyeDirectBones: readonly string[];
   readonly hairPhysicsBones: readonly string[];
+  /** Threshold bands declared in the rig model (`sets.json` / slider / transform-clamp constraints). */
+  readonly modelThresholds: LookBandMap;
+  /** Clamp bands enforced by the page before sending dial values to the rig. */
+  readonly pageClamp: LookBandMap;
 }
 
 export type LookDialReadResult =
@@ -68,9 +87,14 @@ export interface LookStepSnapshot {
  */
 export const HEAD_SPRING_OMEGA0 = 40;
 
-function clampUnit(value: number): number {
+export function clampRange(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.max(-1, Math.min(1, value));
+  const clamped = Math.max(min, Math.min(max, value));
+  return clamped === 0 ? 0 : clamped;
+}
+
+function clampUnit(value: number): number {
+  return clampRange(value, -1, 1);
 }
 
 /**
@@ -146,22 +170,30 @@ function readCompiledDoc(assets: ModelAssets): CompiledDocument {
   return assets.document as unknown as CompiledDocument;
 }
 
-function sliderAmplitude(
+function sliderBounds(
   assets: ModelAssets,
   slider: CompiledConstraintEntry,
-): number {
+): readonly [number, number] {
   const from = slider.record.from ?? 0;
   const to = slider.record.to ?? 0;
   const scale = slider.record.scale ?? 1;
   const anim = assets.animations.find((a) => a.name === slider.animation);
   const duration = anim?.duration ?? 0;
   if (!(scale !== 0) || !Number.isFinite(scale)) {
-    return Math.abs(from);
+    const abs = Math.abs(from);
+    return [-abs, abs];
   }
-  const minVal = from - to / scale;
-  const maxVal = from + (duration - to) / scale;
-  const raw = Math.max(Math.abs(minVal), Math.abs(maxVal));
-  return Math.round(raw * 1e5) / 1e5;
+  const v0 = Math.round((from - to / scale) * 1e5) / 1e5;
+  const v1 = Math.round((from + (duration - to) / scale) * 1e5) / 1e5;
+  return v0 <= v1 ? [v0, v1] : [v1, v0];
+}
+
+function sliderAmplitude(
+  assets: ModelAssets,
+  slider: CompiledConstraintEntry,
+): number {
+  const [lo, hi] = sliderBounds(assets, slider);
+  return Math.max(Math.abs(lo), Math.abs(hi));
 }
 
 function detectSliderDirectionSign(
@@ -179,10 +211,14 @@ function detectSliderDirectionSign(
   if (!probeBone) return 1;
   const tl = probeBone.timelines.find((t) => t.kind === channel);
   if (!tl || tl.keys.length < 2) return 1;
-  const firstKey = tl.keys[0] as { readonly value?: number } | undefined;
-  const lastKey = tl.keys[tl.keys.length - 1] as { readonly value?: number } | undefined;
-  const first = firstKey?.value ?? 0;
-  const last = lastKey?.value ?? 0;
+  const firstKey = tl.keys[0] as
+    | { readonly values?: readonly number[]; readonly value?: number }
+    | undefined;
+  const lastKey = tl.keys[tl.keys.length - 1] as
+    | { readonly values?: readonly number[]; readonly value?: number }
+    | undefined;
+  const first = firstKey?.values?.[0] ?? firstKey?.value ?? 0;
+  const last = lastKey?.values?.[0] ?? lastKey?.value ?? 0;
   return last < first ? -1 : 1;
 }
 
@@ -264,7 +300,11 @@ export function readLookDials(assets: ModelAssets): LookDialReadResult {
         : null;
 
   const bodySlider = sliders.find(
-    (s) => s.name === 'body' || s.animation === 'body_turn' || s.record.bone === 'body_dial',
+    (s) =>
+      s.name === 'body' ||
+      s.name === 'body_turn' ||
+      s.animation === 'body_turn' ||
+      s.record.bone === 'body_dial',
   );
   const B = bodySlider ? sliderAmplitude(assets, bodySlider) : Math.round(Y * 0.2 * 100) / 100;
   const bodyDirectBone =
@@ -277,10 +317,20 @@ export function readLookDials(assets: ModelAssets): LookDialReadResult {
           : null;
 
   const eyeXSlider = sliders.find(
-    (s) => s.name === 'eye_x' || s.animation === 'gaze_x' || s.record.bone === 'eye_x_dial',
+    (s) =>
+      s.name === 'gaze_x' ||
+      s.name === 'eye_x' ||
+      s.animation === 'gaze_x' ||
+      s.record.bone === 'gaze_x_dial' ||
+      s.record.bone === 'eye_x_dial',
   );
   const eyeYSlider = sliders.find(
-    (s) => s.name === 'eye_y' || s.animation === 'gaze_y' || s.record.bone === 'eye_y_dial',
+    (s) =>
+      s.name === 'gaze_y' ||
+      s.name === 'eye_y' ||
+      s.animation === 'gaze_y' ||
+      s.record.bone === 'gaze_y_dial' ||
+      s.record.bone === 'eye_y_dial',
   );
 
   const eyeDirectBones: string[] = [];
@@ -292,7 +342,6 @@ export function readLookDials(assets: ModelAssets): LookDialReadResult {
     }
   }
 
-  // Derive fallback eye pixel clearance from page dimensions of eyewhite vs iris when no eye slider is present.
   let fallbackEyeX = 4;
   let fallbackEyeY = 2.5;
   if ((!eyeXSlider || !eyeYSlider) && doc.pages) {
@@ -311,6 +360,24 @@ export function readLookDials(assets: ModelAssets): LookDialReadResult {
   const pitchSign = detectSliderDirectionSign(doc, pitchSlider?.animation, 'translatey');
   const hairPhysicsBones = findHeadDescendantPhysicsBones(doc);
 
+  const modelThresholds: LookBandMap = {
+    yaw: sliderBounds(assets, yawSlider),
+    pitch: pitchSlider ? sliderBounds(assets, pitchSlider) : [-P, P],
+    roll: rollSlider ? sliderBounds(assets, rollSlider) : [-R, R],
+    body: bodySlider ? sliderBounds(assets, bodySlider) : [-B, B],
+    gazeX: eyeXSlider ? sliderBounds(assets, eyeXSlider) : [-eyeXRange, eyeXRange],
+    gazeY: eyeYSlider ? sliderBounds(assets, eyeYSlider) : [-eyeYRange, eyeYRange],
+  };
+
+  const pageClamp: LookBandMap = {
+    yaw: [-Y, Y],
+    pitch: [-P, P],
+    roll: [-R, R],
+    body: [-B, B],
+    gazeX: [-eyeXRange, eyeXRange],
+    gazeY: [-eyeYRange, eyeYRange],
+  };
+
   return {
     ok: true,
     dials: {
@@ -323,30 +390,38 @@ export function readLookDials(assets: ModelAssets): LookDialReadResult {
       yawSign,
       pitchSign,
       yawBone: yawSlider.record.bone,
+      yawProperty: yawSlider.record.property ?? 'rotate',
       pitchBone:
         pitchSlider?.record.bone && boneNames.has(pitchSlider.record.bone)
           ? pitchSlider.record.bone
           : null,
+      pitchProperty: pitchSlider?.record.property ?? 'rotate',
       rollBone:
         rollSlider?.record.bone && boneNames.has(rollSlider.record.bone)
           ? rollSlider.record.bone
           : null,
+      rollProperty: rollSlider?.record.property ?? 'rotate',
       rollDirectBone,
       bodyBone:
         bodySlider?.record.bone && boneNames.has(bodySlider.record.bone)
           ? bodySlider.record.bone
           : null,
+      bodyProperty: bodySlider?.record.property ?? 'rotate',
       bodyDirectBone,
       eyeXBone:
         eyeXSlider?.record.bone && boneNames.has(eyeXSlider.record.bone)
           ? eyeXSlider.record.bone
           : null,
+      eyeXProperty: eyeXSlider?.record.property ?? 'rotate',
       eyeYBone:
         eyeYSlider?.record.bone && boneNames.has(eyeYSlider.record.bone)
           ? eyeYSlider.record.bone
           : null,
+      eyeYProperty: eyeYSlider?.record.property ?? 'rotate',
       eyeDirectBones,
       hairPhysicsBones,
+      modelThresholds,
+      pageClamp,
     },
   };
 }
@@ -443,9 +518,14 @@ export class LookController {
     this.pointerFx = clampUnit(fx);
     this.pointerFy = clampUnit(fy);
     this.pointerPresent = true;
-    // Eyes follow at once (within 1 frame).
-    this.currentEyeX = this.pointerFx;
-    this.currentEyeY = this.pointerFy;
+    const dials = this.dials;
+    // Eyes follow at once (within 1 frame), clamped to the declared gaze band.
+    this.currentEyeX = dials
+      ? clampRange(this.pointerFx * dials.eyeXRange, dials.pageClamp.gazeX[0], dials.pageClamp.gazeX[1])
+      : this.pointerFx;
+    this.currentEyeY = dials
+      ? clampRange(this.pointerFy * dials.eyeYRange, dials.pageClamp.gazeY[0], dials.pageClamp.gazeY[1])
+      : this.pointerFy;
   }
 
   /** Clears pointer when leaving the canvas; absent pointer -> `(0, 0)`. */
@@ -469,20 +549,37 @@ export class LookController {
     const prevPitch = this.currentHeadPitch;
     const prevRoll = this.currentHeadRoll;
 
-    // 1. Eyes follow at once.
-    this.currentEyeX = this.pointerFx;
-    this.currentEyeY = this.pointerFy;
+    // 1. Eyes follow at once, clamped to the declared gaze band.
+    this.currentEyeX = clampRange(
+      this.pointerFx * dials.eyeXRange,
+      dials.pageClamp.gazeX[0],
+      dials.pageClamp.gazeX[1],
+    );
+    this.currentEyeY = clampRange(
+      this.pointerFy * dials.eyeYRange,
+      dials.pageClamp.gazeY[0],
+      dials.pageClamp.gazeY[1],
+    );
 
-    // 2. Head target follows through a critically-damped spring (~0.15s settle).
+    // 2. Head target follows through a critically-damped spring (~0.15s settle),
+    // clamped in the page to the rig's declared bands before reaching the rig.
     stepCriticallyDampedSpring2D(this.spring, this.pointerFx, this.pointerFy, dt);
-    const hx = this.spring.x;
-    const hy = this.spring.y;
+    const hx = clampUnit(this.spring.x);
+    const hy = clampUnit(this.spring.y);
 
-    this.currentHeadYaw = hx * dials.Y;
-    this.currentHeadPitch = hy * dials.P;
+    this.currentHeadYaw = clampRange(hx * dials.Y, dials.pageClamp.yaw[0], dials.pageClamp.yaw[1]);
+    this.currentHeadPitch = clampRange(
+      hy * dials.P,
+      dials.pageClamp.pitch[0],
+      dials.pageClamp.pitch[1],
+    );
     const rollFactor = hx * hy;
-    this.currentHeadRoll = rollFactor * -dials.R;
-    this.currentBodyYaw = hx * dials.B;
+    this.currentHeadRoll = clampRange(
+      rollFactor * -dials.R,
+      dials.pageClamp.roll[0],
+      dials.pageClamp.roll[1],
+    );
+    this.currentBodyYaw = clampRange(hx * dials.B, dials.pageClamp.body[0], dials.pageClamp.body[1]);
 
     // 3. Feed head angular velocity into play's world physics input (`rig.moved`).
     const dYaw = this.currentHeadYaw - prevYaw;
@@ -543,31 +640,100 @@ export class LookController {
   }
 
   private applyDialsToBones(bones: AdjustableBones, dials: LookDials): void {
-    bones.bone(dials.yawBone).rotation = dials.yawSign * this.currentHeadYaw;
+    const writeChannel = (boneName: string, property: string, value: number): void => {
+      const b = bones.bone(boneName);
+      switch (property) {
+        case 'rotate':
+          b.rotation = value;
+          break;
+        case 'x':
+          b.x = value;
+          break;
+        case 'y':
+          b.y = value;
+          break;
+        case 'scaleX':
+          b.scaleX = value;
+          break;
+        case 'scaleY':
+          b.scaleY = value;
+          break;
+        case 'shearX':
+          b.shearX = value;
+          break;
+        case 'shearY':
+          b.shearY = value;
+          break;
+        default:
+          b.rotation = value;
+          break;
+      }
+    };
+
+    const clampedYaw = clampRange(
+      dials.yawSign * this.currentHeadYaw,
+      dials.pageClamp.yaw[0],
+      dials.pageClamp.yaw[1],
+    );
+    writeChannel(dials.yawBone, dials.yawProperty, clampedYaw);
+
     if (dials.pitchBone) {
-      bones.bone(dials.pitchBone).rotation = dials.pitchSign * this.currentHeadPitch;
+      const clampedPitch = clampRange(
+        dials.pitchSign * this.currentHeadPitch,
+        dials.pageClamp.pitch[0],
+        dials.pageClamp.pitch[1],
+      );
+      writeChannel(dials.pitchBone, dials.pitchProperty, clampedPitch);
     }
     if (dials.rollBone) {
-      bones.bone(dials.rollBone).rotation = this.currentHeadRoll;
+      const clampedRoll = clampRange(
+        this.currentHeadRoll,
+        dials.pageClamp.roll[0],
+        dials.pageClamp.roll[1],
+      );
+      writeChannel(dials.rollBone, dials.rollProperty, clampedRoll);
     } else if (dials.rollDirectBone) {
-      bones.bone(dials.rollDirectBone).rotation += this.currentHeadRoll;
+      bones.bone(dials.rollDirectBone).rotation += clampRange(
+        this.currentHeadRoll,
+        dials.pageClamp.roll[0],
+        dials.pageClamp.roll[1],
+      );
     }
     if (dials.bodyBone) {
-      bones.bone(dials.bodyBone).rotation = this.currentBodyYaw;
+      const clampedBody = clampRange(
+        this.currentBodyYaw,
+        dials.pageClamp.body[0],
+        dials.pageClamp.body[1],
+      );
+      writeChannel(dials.bodyBone, dials.bodyProperty, clampedBody);
     } else if (dials.bodyDirectBone) {
-      bones.bone(dials.bodyDirectBone).rotation -= this.currentBodyYaw;
+      bones.bone(dials.bodyDirectBone).rotation -= clampRange(
+        this.currentBodyYaw,
+        dials.pageClamp.body[0],
+        dials.pageClamp.body[1],
+      );
     }
     if (dials.eyeXBone) {
-      bones.bone(dials.eyeXBone).x = this.currentEyeX * dials.eyeXRange;
+      const clampedEyeX = clampRange(
+        this.currentEyeX,
+        dials.pageClamp.gazeX[0],
+        dials.pageClamp.gazeX[1],
+      );
+      writeChannel(dials.eyeXBone, dials.eyeXProperty, clampedEyeX);
     }
     if (dials.eyeYBone) {
-      bones.bone(dials.eyeYBone).y = this.currentEyeY * dials.eyeYRange;
+      const clampedEyeY = clampRange(
+        this.currentEyeY,
+        dials.pageClamp.gazeY[0],
+        dials.pageClamp.gazeY[1],
+      );
+      writeChannel(dials.eyeYBone, dials.eyeYProperty, clampedEyeY);
     }
     if (!dials.eyeXBone && !dials.eyeYBone && dials.eyeDirectBones.length > 0) {
       for (const eyeBone of dials.eyeDirectBones) {
         const b = bones.bone(eyeBone);
-        b.x += this.currentEyeX * dials.eyeXRange;
-        b.y += this.currentEyeY * dials.eyeYRange;
+        b.x += clampRange(this.currentEyeX, dials.pageClamp.gazeX[0], dials.pageClamp.gazeX[1]);
+        b.y += clampRange(this.currentEyeY, dials.pageClamp.gazeY[0], dials.pageClamp.gazeY[1]);
       }
     }
   }
