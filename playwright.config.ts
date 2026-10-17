@@ -16,8 +16,8 @@ function resolveTestPort(raw: string | undefined): number {
 const port = resolveTestPort(process.env.TEST_PORT);
 
 export default defineConfig({
-  testDir: './packages',
-  testMatch: '**/tests/*.spec.ts',
+  testDir: '.',
+  testMatch: ['packages/**/tests/*.spec.ts', 'examples/**/tests/*.spec.ts'],
   timeout: 60_000,
   expect: { timeout: 30_000 },
   workers: 2,

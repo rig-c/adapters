@@ -13,6 +13,7 @@
     "fetch-assets": "bash scripts/fetch-assets.sh",
     "predev": "bash scripts/fetch-assets.sh",
     "dev": "vite",
+    "example:look": "vite --open /examples/look/index.html",
     "prebuild": "bash scripts/fetch-assets.sh && bun scripts/prepare-oracle.mjs",
     "build": "bun run build:libraries && tsc --noEmit && vite build",
     "preview": "vite preview",
