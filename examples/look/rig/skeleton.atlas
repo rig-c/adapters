@@ -1,0 +1,260 @@
+images/hair_back.png
+size: 144, 210
+filter: Linear, Linear
+pma: false
+hair_back
+bounds: 0, 0, 144, 210
+offsets: 0, 0, 144, 210
+rotate: 0
+
+images/shins.png
+size: 182, 289
+filter: Linear, Linear
+pma: false
+shins
+bounds: 0, 0, 182, 289
+offsets: 0, 0, 182, 289
+rotate: 0
+
+images/thigh_r.png
+size: 91, 241
+filter: Linear, Linear
+pma: false
+thigh_r
+bounds: 0, 0, 91, 241
+offsets: 0, 0, 91, 241
+rotate: 0
+
+images/thigh_l.png
+size: 88, 241
+filter: Linear, Linear
+pma: false
+thigh_l
+bounds: 0, 0, 88, 241
+offsets: 0, 0, 88, 241
+rotate: 0
+
+images/shoe_l.png
+size: 74, 116
+filter: Linear, Linear
+pma: false
+shoe_l
+bounds: 0, 0, 74, 116
+offsets: 0, 0, 74, 116
+rotate: 0
+
+images/shoe_r.png
+size: 74, 115
+filter: Linear, Linear
+pma: false
+shoe_r
+bounds: 0, 0, 74, 115
+offsets: 0, 0, 74, 115
+rotate: 0
+
+images/neck.png
+size: 53, 79
+filter: Linear, Linear
+pma: false
+neck
+bounds: 0, 0, 53, 79
+offsets: 0, 0, 53, 79
+rotate: 0
+
+images/bottomwear.png
+size: 217, 213
+filter: Linear, Linear
+pma: false
+bottomwear
+bounds: 0, 0, 217, 213
+offsets: 0, 0, 217, 213
+rotate: 0
+
+images/topwear.png
+size: 168, 206
+filter: Linear, Linear
+pma: false
+topwear
+bounds: 0, 0, 168, 206
+offsets: 0, 0, 168, 206
+rotate: 0
+
+images/sleevefront_l.png
+size: 27, 92
+filter: Linear, Linear
+pma: false
+sleevefront_l
+bounds: 0, 0, 27, 92
+offsets: 0, 0, 27, 92
+rotate: 0
+
+images/forearm_r.png
+size: 173, 232
+filter: Linear, Linear
+pma: false
+forearm_r
+bounds: 0, 0, 173, 232
+offsets: 0, 0, 173, 232
+rotate: 0
+
+images/upperarm_r.png
+size: 113, 164
+filter: Linear, Linear
+pma: false
+upperarm_r
+bounds: 0, 0, 113, 164
+offsets: 0, 0, 113, 164
+rotate: 0
+
+images/forearm_l.png
+size: 167, 222
+filter: Linear, Linear
+pma: false
+forearm_l
+bounds: 0, 0, 167, 222
+offsets: 0, 0, 167, 222
+rotate: 0
+
+images/upperarm_l.png
+size: 113, 175
+filter: Linear, Linear
+pma: false
+upperarm_l
+bounds: 0, 0, 113, 175
+offsets: 0, 0, 113, 175
+rotate: 0
+
+images/ear_l.png
+size: 29, 42
+filter: Linear, Linear
+pma: false
+ear_l
+bounds: 0, 0, 29, 42
+offsets: 0, 0, 29, 42
+rotate: 0
+
+images/ear_r.png
+size: 30, 42
+filter: Linear, Linear
+pma: false
+ear_r
+bounds: 0, 0, 30, 42
+offsets: 0, 0, 30, 42
+rotate: 0
+
+images/face.png
+size: 114, 136
+filter: Linear, Linear
+pma: false
+face
+bounds: 0, 0, 114, 136
+offsets: 0, 0, 114, 136
+rotate: 0
+
+images/mouth.png
+size: 36, 18
+filter: Linear, Linear
+pma: false
+mouth
+bounds: 0, 0, 36, 18
+offsets: 0, 0, 36, 18
+rotate: 0
+
+images/brow_r.png
+size: 31, 13
+filter: Linear, Linear
+pma: false
+brow_r
+bounds: 0, 0, 31, 13
+offsets: 0, 0, 31, 13
+rotate: 0
+
+images/brow_l.png
+size: 36, 12
+filter: Linear, Linear
+pma: false
+brow_l
+bounds: 0, 0, 36, 12
+offsets: 0, 0, 36, 12
+rotate: 0
+
+images/eyewhite_r.png
+size: 37, 31
+filter: Linear, Linear
+pma: false
+eyewhite_r
+bounds: 0, 0, 37, 31
+offsets: 0, 0, 37, 31
+rotate: 0
+
+images/eyewhite_l.png
+size: 40, 31
+filter: Linear, Linear
+pma: false
+eyewhite_l
+bounds: 0, 0, 40, 31
+offsets: 0, 0, 40, 31
+rotate: 0
+
+images/iris_r.png
+size: 29, 30
+filter: Linear, Linear
+pma: false
+iris_r
+bounds: 0, 0, 29, 30
+offsets: 0, 0, 29, 30
+rotate: 0
+
+images/iris_l.png
+size: 27, 30
+filter: Linear, Linear
+pma: false
+iris_l
+bounds: 0, 0, 27, 30
+offsets: 0, 0, 27, 30
+rotate: 0
+
+images/lash_r.png
+size: 45, 39
+filter: Linear, Linear
+pma: false
+lash_r
+bounds: 0, 0, 45, 39
+offsets: 0, 0, 45, 39
+rotate: 0
+
+images/hairpin.png
+size: 91, 42
+filter: Linear, Linear
+pma: false
+hairpin
+bounds: 0, 0, 91, 42
+offsets: 0, 0, 91, 42
+rotate: 0
+
+images/lash_l.png
+size: 44, 35
+filter: Linear, Linear
+pma: false
+lash_l
+bounds: 0, 0, 44, 35
+offsets: 0, 0, 44, 35
+rotate: 0
+
+images/hair_front.png
+size: 151, 195
+filter: Linear, Linear
+pma: false
+hair_front
+bounds: 0, 0, 151, 195
+offsets: 0, 0, 151, 195
+rotate: 0
+
+images/nose.png
+size: 11, 12
+filter: Linear, Linear
+pma: false
+nose
+bounds: 0, 0, 11, 12
+offsets: 0, 0, 11, 12
+rotate: 0

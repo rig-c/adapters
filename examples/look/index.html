@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@rig-c/pixi — examples/look</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: rgba(22, 27, 34, 0.86);
+        --border: rgba(56, 68, 84, 0.7);
+        --fg: #e6edf3;
+        --muted: #8b949e;
+        --accent: #58a6ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: radial-gradient(circle at 50% 38%, #182030 0%, #0b0e14 72%);
+        color: var(--fg);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      #look-stage {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #look-stage canvas {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        cursor: crosshair;
+      }
+      #hud {
+        position: fixed;
+        left: 16px;
+        bottom: 16px;
+        padding: 10px 14px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--muted);
+        pointer-events: none;
+        white-space: pre;
+        backdrop-filter: blur(6px);
+      }
+      #hud strong {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="look-stage"></div>
+    <div id="hud">Loading look rig…</div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
