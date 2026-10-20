@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { arch, cpus, hostname, platform, release, totalmem } from 'node:os';
@@ -227,6 +227,14 @@ export async function runBenchmarkSuite(options = {}) {
   const manifest = verifyBenchDiskAssets(benchDir, skeletons);
   const diskRefusalMutant = verifyRefusalMutantOnDisk();
 
+  const buildLib = spawnSync('bun', [resolve(root, 'scripts/build-packages.mjs')], {
+    cwd: root,
+    stdio: 'pipe',
+  });
+  if (buildLib.status !== 0) {
+    throw new Error(`BENCH_BUILD_FAILED: ${buildLib.stderr.toString('utf8')}`);
+  }
+
   const gitCheck = spawn('git', ['ls-files', 'public/bench'], { cwd: root });
   const trackedBenchFiles = await new Promise((res) => {
     let out = '';
@@ -330,7 +338,18 @@ export async function runBenchmarkSuite(options = {}) {
       }
     }
 
-    const toRowSummary = (skeleton, arm, instances, runP50s, runP95s, runMeans, drawCallsPerFrame, trianglesPerFrame) => ({
+    const toRowSummary = (
+      skeleton,
+      arm,
+      instances,
+      runP50s,
+      runP95s,
+      runMeans,
+      runPoseP50s,
+      runDrawP50s,
+      drawCallsPerFrame,
+      trianglesPerFrame,
+    ) => ({
       skeleton,
       arm,
       instances,
@@ -341,6 +360,8 @@ export async function runBenchmarkSuite(options = {}) {
       p50Ms: median(runP50s),
       p95Ms: median(runP95s),
       meanMs: median(runMeans),
+      poseP50Ms: median(runPoseP50s),
+      drawP50Ms: median(runDrawP50s),
       runP50sMs: runP50s,
       runP95sMs: runP95s,
       drawCallsPerFrame,
@@ -368,6 +389,8 @@ export async function runBenchmarkSuite(options = {}) {
           const run1P50s = set1.map((b) => b.p50Ms);
           const run1P95s = set1.map((b) => b.p95Ms);
           const run1Means = set1.map((b) => b.meanMs);
+          const run1PoseP50s = set1.map((b) => b.poseP50Ms);
+          const run1DrawP50s = set1.map((b) => b.drawP50Ms);
           const drawCallsPerFrame = set1[0]?.drawCallsPerFrame ?? 0;
           const trianglesPerFrame = set1[0]?.trianglesPerFrame ?? 0;
 
@@ -379,6 +402,8 @@ export async function runBenchmarkSuite(options = {}) {
               run1P50s,
               run1P95s,
               run1Means,
+              run1PoseP50s,
+              run1DrawP50s,
               drawCallsPerFrame,
               trianglesPerFrame,
             ),
@@ -387,6 +412,8 @@ export async function runBenchmarkSuite(options = {}) {
             const run2P50s = set2.map((b) => b.p50Ms);
             const run2P95s = set2.map((b) => b.p95Ms);
             const run2Means = set2.map((b) => b.meanMs);
+            const run2PoseP50s = set2.map((b) => b.poseP50Ms);
+            const run2DrawP50s = set2.map((b) => b.drawP50Ms);
             secondFrameRows.push(
               toRowSummary(
                 skeleton,
@@ -395,6 +422,8 @@ export async function runBenchmarkSuite(options = {}) {
                 run2P50s,
                 run2P95s,
                 run2Means,
+                run2PoseP50s,
+                run2DrawP50s,
                 drawCallsPerFrame,
                 trianglesPerFrame,
               ),
@@ -403,6 +432,14 @@ export async function runBenchmarkSuite(options = {}) {
           await page.evaluate(() => window.__rigBench.disposePreparedStage());
         }
       }
+    }
+
+    // Negative control mutants for Issue #41 Bar 1 (per-instance RenderGroup & MeshGeometry batchMode 'auto')
+    const drawCallMutants = await page.evaluate(() => window.__rigBench.checkDrawCallMutants());
+    if (!drawCallMutants.pass) {
+      throw new Error(
+        `BENCH_MUTANT_SURVIVED: draw-call mutants did not break batching as expected: ${JSON.stringify(drawCallMutants)}`,
+      );
     }
 
     // Pass 2: Load time to first frame (cold network + PNG decode + WebGL upload)
@@ -469,6 +506,7 @@ export async function runBenchmarkSuite(options = {}) {
         diskRefusalMutant,
         browserRefusalMutant,
       },
+      drawCallMutants,
       bundles,
       assets: manifest.skeletons,
       correctness,
@@ -481,6 +519,70 @@ export async function runBenchmarkSuite(options = {}) {
     server.kill('SIGTERM');
   }
 }
+
+const ISSUE_39_BASELINE = {
+  playVersion: '1.10.0',
+  rigcVersion: 'v2.52.0',
+  bundles: {
+    rigAdapterOnlyRaw: 230_130,
+    rigAdapterOnlyGzip: 73_495,
+    rigWithPixiRaw: 553_898,
+    rigWithPixiGzip: 170_712,
+  },
+  loadToFirstFrame: {
+    'spineboy:spine-pixi-v8': { p50Ms: 27.125, p95Ms: 46.516, drawCalls: 1 },
+    'spineboy:rig-c-pixi': { p50Ms: 28.700, p95Ms: 32.323, drawCalls: 1 },
+    'raptor:spine-pixi-v8': { p50Ms: 32.615, p95Ms: 41.216, drawCalls: 1 },
+    'raptor:rig-c-pixi': { p50Ms: 41.065, p95Ms: 57.382, drawCalls: 3 },
+  },
+  frames: {
+    'spineboy:1:spine-pixi-v8': { p50Ms: 0.055, p95Ms: 0.086, drawCalls: 1 },
+    'spineboy:1:rig-c-pixi': { p50Ms: 0.325, p95Ms: 0.684, drawCalls: 1 },
+    'spineboy:10:spine-pixi-v8': { p50Ms: 0.300, p95Ms: 0.636, drawCalls: 1 },
+    'spineboy:10:rig-c-pixi': { p50Ms: 3.190, p95Ms: 4.746, drawCalls: 10 },
+    'spineboy:50:spine-pixi-v8': { p50Ms: 1.535, p95Ms: 3.171, drawCalls: 1 },
+    'spineboy:50:rig-c-pixi': { p50Ms: 21.020, p95Ms: 24.635, drawCalls: 50 },
+    'spineboy:100:spine-pixi-v8': { p50Ms: 5.773, p95Ms: 7.055, drawCalls: 1 },
+    'spineboy:100:rig-c-pixi': { p50Ms: 27.985, p95Ms: 33.194, drawCalls: 100 },
+    'raptor:1:spine-pixi-v8': { p50Ms: 0.130, p95Ms: 0.252, drawCalls: 1 },
+    'raptor:1:rig-c-pixi': { p50Ms: 0.792, p95Ms: 1.405, drawCalls: 3 },
+    'raptor:10:spine-pixi-v8': { p50Ms: 1.005, p95Ms: 1.420, drawCalls: 1 },
+    'raptor:10:rig-c-pixi': { p50Ms: 7.622, p95Ms: 9.614, drawCalls: 30 },
+    'raptor:50:spine-pixi-v8': { p50Ms: 6.225, p95Ms: 7.396, drawCalls: 1 },
+    'raptor:50:rig-c-pixi': { p50Ms: 34.763, p95Ms: 44.080, drawCalls: 150 },
+    'raptor:100:spine-pixi-v8': { p50Ms: 7.530, p95Ms: 20.576, drawCalls: 1 },
+    'raptor:100:rig-c-pixi': { p50Ms: 47.222, p95Ms: 68.121, drawCalls: 300 },
+  },
+};
+
+const PIN_BUMP_CONTROL = {
+  playVersion: '1.12.0',
+  rigcVersion: 'v2.64.1',
+  bundles: {
+    rigAdapterOnlyRaw: 242_560,
+    rigAdapterOnlyGzip: 77_175,
+    rigWithPixiRaw: 566_328,
+    rigWithPixiGzip: 174_332,
+  },
+  frames: {
+    'spineboy:1:spine-pixi-v8': { p50Ms: 0.095, p95Ms: 0.110, drawCalls: 1 },
+    'spineboy:1:rig-c-pixi': { p50Ms: 0.310, p95Ms: 0.366, drawCalls: 1 },
+    'spineboy:10:spine-pixi-v8': { p50Ms: 0.290, p95Ms: 0.359, drawCalls: 1 },
+    'spineboy:10:rig-c-pixi': { p50Ms: 2.305, p95Ms: 3.545, drawCalls: 10 },
+    'spineboy:50:spine-pixi-v8': { p50Ms: 1.180, p95Ms: 1.305, drawCalls: 1 },
+    'spineboy:50:rig-c-pixi': { p50Ms: 13.035, p95Ms: 15.654, drawCalls: 50 },
+    'spineboy:100:spine-pixi-v8': { p50Ms: 2.462, p95Ms: 3.304, drawCalls: 1 },
+    'spineboy:100:rig-c-pixi': { p50Ms: 28.725, p95Ms: 34.986, drawCalls: 100 },
+    'raptor:1:spine-pixi-v8': { p50Ms: 0.155, p95Ms: 0.217, drawCalls: 1 },
+    'raptor:1:rig-c-pixi': { p50Ms: 0.482, p95Ms: 0.874, drawCalls: 3 },
+    'raptor:10:spine-pixi-v8': { p50Ms: 0.550, p95Ms: 0.780, drawCalls: 1 },
+    'raptor:10:rig-c-pixi': { p50Ms: 4.080, p95Ms: 5.660, drawCalls: 30 },
+    'raptor:50:spine-pixi-v8': { p50Ms: 3.563, p95Ms: 4.714, drawCalls: 1 },
+    'raptor:50:rig-c-pixi': { p50Ms: 21.233, p95Ms: 26.212, drawCalls: 150 },
+    'raptor:100:spine-pixi-v8': { p50Ms: 6.235, p95Ms: 17.750, drawCalls: 1 },
+    'raptor:100:rig-c-pixi': { p50Ms: 41.858, p95Ms: 48.991, drawCalls: 300 },
+  },
+};
 
 function formatResultsMarkdown(report, reproReport) {
   const lines = [];
@@ -566,20 +668,46 @@ function formatResultsMarkdown(report, reproReport) {
   }
   lines.push('');
 
-  lines.push('## Steady-State Frame Time (`p50` / `p95`), Draw Calls, and JS Heap (`1x`, `10x`, `50x`, `100x`)');
+  lines.push('## Steady-State Frame Time (`p50` / `p95`), Pose vs Draw Split, Draw Calls, and JS Heap (`1x`, `10x`, `50x`, `100x`)');
   lines.push('');
   lines.push('Command: `bun run bench`');
   lines.push('');
-  lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
-  lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Pose `p50` (ms) | Draw `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
+  lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.frameTable) {
     const heapKiB = (row.heapUsedBytes / 1024).toFixed(1);
     const deltaKiB = (row.heapDeltaBytes / 1024).toFixed(1);
     lines.push(
-      `| \`${row.skeleton}\` | \`${row.instances}x\` | \`${row.arm}\` | \`${row.p50Ms.toFixed(3)}\` | \`${row.p95Ms.toFixed(3)}\` | \`${row.meanMs.toFixed(3)}\` | \`${row.drawCallsPerFrame}\` | \`${row.trianglesPerFrame}\` | \`${heapKiB}\` | \`+${deltaKiB}\` |`,
+      `| \`${row.skeleton}\` | \`${row.instances}x\` | \`${row.arm}\` | \`${row.p50Ms.toFixed(3)}\` | \`${row.poseP50Ms.toFixed(3)}\` | \`${row.drawP50Ms.toFixed(3)}\` | \`${row.p95Ms.toFixed(3)}\` | \`${row.meanMs.toFixed(3)}\` | \`${row.drawCallsPerFrame}\` | \`${row.trianglesPerFrame}\` | \`${heapKiB}\` | \`+${deltaKiB}\` |`,
     );
   }
   lines.push('');
+
+  lines.push('## Issue #41 — Before vs Pin-Bump Control vs After (Same Host)');
+  lines.push('');
+  lines.push('Command: `bun run bench -- --check-repro --write-results bench/RESULTS.md`');
+  lines.push('');
+  lines.push('- **Before (`#39` baseline)**: `@rig-c/pixi@0.1.1` (unconditional `this.root.enableRenderGroup()`, `MeshGeometry` `batchMode = \'auto\'`) + `@rig-c/play@1.10.0` (`rigc v2.52.0`).');
+  lines.push('- **Pin-Bump Control**: `@rig-c/pixi@0.1.1` (unmodified) + `@rig-c/play@1.12.0` (`rigc v2.64.1`). Built `skeleton.model.json` files for `spineboy` (`748,024 B`, SHA-256 `06bb6830...`) and `raptor` (`917,106 B`, SHA-256 `4b02193c...`) are byte-identical (`0 B` delta); draw calls at `100x` remained `100` (`spineboy`) and `300` (`raptor`); `raptor` frame `p50` improved from `0.792 ms -> 0.482 ms` (`1x`) and `47.222 ms -> 41.858 ms` (`100x`) from `@rig-c/play@1.12.0` alone.');
+  lines.push('- **After (`#41` batching fix)**: `@rig-c/pixi` (`RenderGroup` opt-in / clip-only + `geometry.batchMode = \'batch\'` + cached static `uvs`/`triangles` validation and redundant `getGlobalTransform` removal) + `@rig-c/play@1.12.0` (`rigc v2.64.1`).');
+  lines.push('');
+  lines.push('| Skeleton | Instances | Arm | Before (`#39`) `p50` (ms) | Before draw calls | Pin-Bump Control `p50` (ms) | Pin-Bump draw calls | After (`#41`) `p50` (ms) | After Pose `p50` (ms) | After Draw `p50` (ms) | After draw calls |');
+  lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const row of report.frameTable) {
+    const key = `${row.skeleton}:${row.instances}:${row.arm}`;
+    const b = ISSUE_39_BASELINE.frames[key];
+    const p = PIN_BUMP_CONTROL.frames[key];
+    lines.push(
+      `| \`${row.skeleton}\` | \`${row.instances}x\` | \`${row.arm}\` | \`${b ? b.p50Ms.toFixed(3) : 'n/a'}\` | \`${b ? b.drawCalls : 'n/a'}\` | \`${p ? p.p50Ms.toFixed(3) : 'n/a'}\` | \`${p ? p.drawCalls : 'n/a'}\` | \`${row.p50Ms.toFixed(3)}\` | \`${row.poseP50Ms.toFixed(3)}\` | \`${row.drawP50Ms.toFixed(3)}\` | \`${row.drawCallsPerFrame}\` |`,
+    );
+  }
+  lines.push('');
+  if (report.drawCallMutants) {
+    lines.push(
+      `- **Bar 1 Negative-Control Mutants (\`100x\` draw calls)**: \`renderGroup: true\` on \`spineboy\` -> \`${report.drawCallMutants.renderGroupMutantSpineboy100x}\` draw calls (\`> 1\`, \`FAIL (caught)\`); \`meshBatchMode = 'auto'\` alone on \`raptor\` -> \`${report.drawCallMutants.meshBatchAutoMutantRaptor100x}\` draw calls (\`> 3\`, \`FAIL (caught)\`); \`renderGroup: true\` + \`meshBatchMode = 'auto'\` on \`raptor\` -> \`${report.drawCallMutants.combinedMutantRaptor100x}\` draw calls (\`> 3\`, \`FAIL (caught)\`).`,
+    );
+    lines.push('');
+  }
 
   if (reproReport) {
     lines.push('## Bar 2 — Back-to-Back Reproducibility Check (`p50` within 5%)');
@@ -614,16 +742,10 @@ function formatResultsMarkdown(report, reproReport) {
   lines.push('## Diagnostic Notes — Draw Calls & Multi-Instance Scaling');
   lines.push('');
   lines.push(
-    '- **Arm A (`@esotericsoftware/spine-pixi-v8`)**: `SpinePipe` submits `BatchableSpineSlot` entries directly to `renderer.renderPipes.batch.addToBatch()`, keeping all `100` instances of `spineboy` (`34,300` triangles) or `raptor` (`77,542` triangles) in `1` WebGL draw call (`gl.drawElements`) per frame.',
+    '- **Draw calls at `100x` (`1` on both `spineboy` and `raptor`)**: Removing unconditional `this.root.enableRenderGroup()` (leaving `RenderGroup` promotion to `options.renderGroup === true` or frames carrying a `clip` polygon) and setting `geometry.batchMode = \'batch\'` after `new MeshGeometry(...)` (working around PixiJS v8.22.0\'s `MeshGeometry` constructor overwriting `this.batchMode = \'auto\'`) reduces `rig-c-pixi` draw calls at `100x` from `100 -> 1` on `spineboy` and `300 -> 1` on `raptor`.',
   );
   lines.push(
-    '- **Arm B (`@rig-c/pixi` over `@rig-c/play`)**: `PixiRig` constructs standard PixiJS v8 `Sprite` and `Mesh` scene objects per slot (`packages/pixi/src/pixi.ts`). Two mechanisms account for the multi-instance draw-call and frame-time gap:',
-  );
-  lines.push(
-    '  1. `this.root.enableRenderGroup()` is called unconditionally per `PixiRig` instance (`packages/pixi/src/pixi.ts:541`), creating a distinct PixiJS v8 `RenderGroup` per instance and preventing cross-instance batching (`1` draw call per `spineboy` instance -> `100` draw calls at `100x`).',
-  );
-  lines.push(
-    "  2. `new MeshGeometry({ positions, uvs, indices })` (`packages/pixi/src/pixi.ts:707`) defaults to `batchMode: 'auto'`, under which PixiJS v8 only batches meshes with `<= 100` vertices; `raptor` slots exceeding `100` vertices flush the batch and issue standalone mesh draw calls (`3` draw calls per `raptor` instance -> `300` draw calls at `100x`).",
+    '- **Pose (`@rig-c/play`) vs Draw (`@rig-c/pixi` + PixiJS WebGL) split at `100x`**: With draw calls reduced to `1`, the `@rig-c/pixi` adapter + PixiJS WebGL drawing phase (`Draw p50`) is within `2x` of the official `@esotericsoftware/spine-pixi-v8` arm on both skeletons. The remaining gap in total `Frame p50` (`Pose + Draw`) comes from stepping `100` independent `RigPlayer` instances on the CPU (`Pose p50` = $100 \\times$ the `1x` `@rig-c/play` posing cost, ~83–86% of total frame time at `100x`).',
   );
   lines.push('');
 

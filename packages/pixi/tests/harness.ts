@@ -1651,10 +1651,16 @@ async function boundsProbe(options: BoundsProbeOptions): Promise<BoundsProbeResu
 export interface PixiRigRefusalAndFreezeResult {
   refusals: Array<{ name: string; threw: boolean; message: string }>;
   frozenAssetsLifecycleSucceeded: boolean;
+  defaultRenderGroupFalse: boolean;
+  optInRenderGroupTrue: boolean;
+  clippedRenderGroupTrue: boolean;
+  allMeshGeometriesBatchMode: boolean;
 }
 
 async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeResult> {
   const walkAssets = await getAssets('walk');
+  const flexAssets = await getAssets('flex');
+  const figureAssets = await getAssets('figure');
   const refusals: Array<{ name: string; threw: boolean; message: string }> = [];
 
   const capture = (name: string, fn: () => void): void => {
@@ -1675,6 +1681,10 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
 
   capture('invalid-initial-timescale', () => {
     new PixiRig(walkAssets, { timescale: -1 });
+  });
+
+  capture('invalid-render-group', () => {
+    new PixiRig(walkAssets, { renderGroup: 'yes' as unknown as boolean });
   });
 
   const rig = new PixiRig(walkAssets, { ticker: null, autoUpdate: false });
@@ -1758,14 +1768,43 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
   frozenRig.renderer.render(frame);
   const b = frozenRig.bounds();
   const rootBone = frozenRig.bone(boneNames[0] ?? 'root');
+  const defaultRenderGroupFalse = frozenRig.isRenderGroup === false;
   frozenRig.destroy();
   if (b !== null && Number.isFinite(rootBone.x) && Number.isFinite(rootBone.y)) {
     frozenAssetsLifecycleSucceeded = true;
   }
 
+  const optInRig = new PixiRig(walkAssets, {
+    ticker: null,
+    autoUpdate: false,
+    renderGroup: true,
+  });
+  const optInRenderGroupTrue = optInRig.isRenderGroup === true;
+  optInRig.destroy();
+
+  const flexRig = new PixiRig(flexAssets, { ticker: null, autoUpdate: false });
+  const allMeshGeometriesBatchMode =
+    flexRig.isRenderGroup === false &&
+    flexRig.children.every((child) => {
+      if (child instanceof Mesh) {
+        return child.geometry.batchMode === 'batch';
+      }
+      return true;
+    });
+  flexRig.destroy();
+
+  const clippedRig = new PixiRig(figureAssets, { ticker: null, autoUpdate: false });
+  clippedRig.play('mask');
+  const clippedRenderGroupTrue = clippedRig.isRenderGroup === true;
+  clippedRig.destroy();
+
   return {
     refusals,
     frozenAssetsLifecycleSucceeded,
+    defaultRenderGroupFalse,
+    optInRenderGroupTrue,
+    clippedRenderGroupTrue,
+    allMeshGeometriesBatchMode,
   };
 }
 

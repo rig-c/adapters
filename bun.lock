@@ -7,7 +7,7 @@
       "dependencies": {
         "@rig-c/phaser": "workspace:*",
         "@rig-c/pixi": "workspace:*",
-        "@rig-c/play": "1.10.0",
+        "@rig-c/play": "1.12.0",
         "@rig-c/three": "workspace:*",
         "phaser": "4.2.1",
         "pixi.js": "8.22.0",
@@ -19,7 +19,7 @@
         "@types/three": "0.186.0",
         "eslint": "^10.9.0",
         "release-please": "^17.1.3",
-        "rig-c": "2.52.0",
+        "rig-c": "2.64.1",
         "tsup": "^8.5.0",
         "typescript": "^5.9.3",
         "typescript-eslint": "^8.67.0",
@@ -29,7 +29,7 @@
     },
     "packages/phaser": {
       "name": "@rig-c/phaser",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@rig-c/adapters-shared": "workspace:*",
       },
@@ -40,7 +40,7 @@
     },
     "packages/pixi": {
       "name": "@rig-c/pixi",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@rig-c/adapters-shared": "workspace:*",
       },
@@ -61,7 +61,7 @@
     },
     "packages/three": {
       "name": "@rig-c/three",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@rig-c/adapters-shared": "workspace:*",
         "@types/three": "0.186.0",
@@ -217,7 +217,7 @@
 
     "@rig-c/pixi": ["@rig-c/pixi@workspace:packages/pixi"],
 
-    "@rig-c/play": ["@rig-c/play@1.10.0", "", {}, "sha512-/5HiOHAiaEwns+279M6hSc1zZoZ6dsL8ECu03llqEWPy0nH6YAq7q0+3Vf9ptqmwRaEdjHS3aKMFSghuE2X7Zw=="],
+    "@rig-c/play": ["@rig-c/play@1.12.0", "", {}, "sha512-kEHNtYnOEnx78T9MqjLZzpFqqVrQiGCjkK++4TvoYMDD4qB9YrP3CaDRvlIEVYBAvRWDgFMw5XL4egRWFcYLCQ=="],
 
     "@rig-c/three": ["@rig-c/three@workspace:packages/three"],
 
@@ -673,7 +673,7 @@
 
     "retry": ["retry@0.13.1", "", {}, "sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg=="],
 
-    "rig-c": ["rig-c@2.52.0", "", { "bin": { "rigc": "bin/rigc.cjs" } }, "sha512-oJeuwc+OWRsDxk6Xjta27ILKOGUjtPW8BL3f86KOe/mt6go/LwepFyVWYruGWUo2uEa+C+ObW/BLyIpsOdXE1Q=="],
+    "rig-c": ["rig-c@2.64.1", "", { "bin": { "rigc": "bin/rigc.cjs" } }, "sha512-QtSiVq/U2Dc7HwKbbPgEwfVCCvnkKImusadHtAUeRRPsomRlCTWHGJLNyvMegnZUoBtlhVMQfjAYTH3l2EKPzQ=="],
 
     "rollup": ["rollup@4.64.6", "", { "dependencies": { "@types/estree": "1.0.9" }, "optionalDependencies": { "@napi-rs/lzma-linux-x64-gnu": "1.5.1", "@rollup/rollup-android-arm-eabi": "4.64.6", "@rollup/rollup-android-arm64": "4.64.6", "@rollup/rollup-darwin-arm64": "4.64.6", "@rollup/rollup-darwin-x64": "4.64.6", "@rollup/rollup-freebsd-arm64": "4.64.6", "@rollup/rollup-freebsd-x64": "4.64.6", "@rollup/rollup-linux-arm-gnueabihf": "4.64.6", "@rollup/rollup-linux-arm-musleabihf": "4.64.6", "@rollup/rollup-linux-arm64-gnu": "4.64.6", "@rollup/rollup-linux-arm64-musl": "4.64.6", "@rollup/rollup-linux-loong64-gnu": "4.64.6", "@rollup/rollup-linux-loong64-musl": "4.64.6", "@rollup/rollup-linux-ppc64-gnu": "4.64.6", "@rollup/rollup-linux-ppc64-musl": "4.64.6", "@rollup/rollup-linux-riscv64-gnu": "4.64.6", "@rollup/rollup-linux-riscv64-musl": "4.64.6", "@rollup/rollup-linux-s390x-gnu": "4.64.6", "@rollup/rollup-linux-x64-gnu": "4.64.6", "@rollup/rollup-linux-x64-musl": "4.64.6", "@rollup/rollup-openbsd-x64": "4.64.6", "@rollup/rollup-openharmony-arm64": "4.64.6", "@rollup/rollup-win32-arm64-msvc": "4.64.6", "@rollup/rollup-win32-ia32-msvc": "4.64.6", "@rollup/rollup-win32-x64-gnu": "4.64.6", "@rollup/rollup-win32-x64-msvc": "4.64.6", "fsevents": "~2.3.2" }, "bin": { "rollup": "dist/bin/rollup" } }, "sha512-fX1Vy+UNKdXn+xKDnu/HBXbHVr1AY8cSdQj9BU4kLv5aFCMqGpvrVbyUMmjN3DdzWhSAuTbcX8PCNEVaumthYA=="],
 
