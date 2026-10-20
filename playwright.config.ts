@@ -18,6 +18,7 @@ const port = resolveTestPort(process.env.TEST_PORT);
 export default defineConfig({
   testDir: '.',
   testMatch: ['packages/**/tests/*.spec.ts', 'examples/**/tests/*.spec.ts'],
+  testIgnore: ['**/.worktrees/**'],
   timeout: 60_000,
   expect: { timeout: 30_000 },
   workers: 2,

@@ -32,6 +32,7 @@
   "include": [
     "src",
     "examples",
+    "bench",
     "packages",
     "playwright.config.ts",
     "vite.config.ts"
