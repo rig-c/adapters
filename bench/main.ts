@@ -1,4 +1,4 @@
-import { loadModel, type ModelAssets } from '@rig-c/play';
+import { loadModel, type ModelAssets, type PosedFrame } from '@rig-c/play';
 import { PixiRig } from '@rig-c/pixi';
 import { Container, ImageSource, WebGLRenderer } from 'pixi.js';
 import {
@@ -55,8 +55,17 @@ export interface FrameBatchResult {
   meanMs: number;
   minMs: number;
   maxMs: number;
+  poseP50Ms: number;
+  drawP50Ms: number;
   drawCallsPerFrame: number;
   trianglesPerFrame: number;
+}
+
+export interface DrawCallMutantResult {
+  renderGroupMutantSpineboy100x: number;
+  meshBatchAutoMutantRaptor100x: number;
+  combinedMutantRaptor100x: number;
+  pass: boolean;
 }
 
 export interface GpuInfo {
@@ -664,7 +673,8 @@ interface PreparedStage {
   warmupFrames: number;
   stage: Container;
   resetPhase(): void;
-  stepAll(dt: number): void;
+  poseAll(dt: number): void;
+  drawAll(): void;
   dispose(): void;
 }
 
@@ -746,19 +756,22 @@ export async function prepareBenchmarkStage(
         }
       }
     };
-    const stepAll = (stepDt: number): void => {
+    const poseAll = (stepDt: number): void => {
       for (let i = 0; i < spines.length; i++) {
         spines[i].update(stepDt);
       }
     };
-    for (let f = 0; f < warmupFrames; f++) {
-      stepAll(dt);
+    const drawAll = (): void => {
       renderer.render({ container: stage });
+    };
+    for (let f = 0; f < warmupFrames; f++) {
+      poseAll(dt);
+      drawAll();
     }
     gl.finish();
     counters.reset();
-    stepAll(dt);
-    renderer.render({ container: stage });
+    poseAll(dt);
+    drawAll();
     gl.finish();
     const drawCallsPerFrame = counters.drawCalls;
     const trianglesPerFrame = counters.triangles;
@@ -770,7 +783,8 @@ export async function prepareBenchmarkStage(
       warmupFrames,
       stage,
       resetPhase,
-      stepAll,
+      poseAll,
+      drawAll,
       dispose() {
         stage.removeChildren();
         for (const s of spines) {
@@ -784,7 +798,9 @@ export async function prepareBenchmarkStage(
 
   const assets = await getCachedRigPlayModel(skeleton, baseUrl);
   const rigs: PixiRig[] = [];
-  for (const slot of grid) {
+  const posedFrames: PosedFrame[] = new Array<PosedFrame>(grid.length);
+  for (let i = 0; i < grid.length; i++) {
+    const slot = grid[i];
     const rig = createRigInstance(
       assets,
       placement.animation,
@@ -795,6 +811,7 @@ export async function prepareBenchmarkStage(
       false,
     );
     rigs.push(rig);
+    posedFrames[i] = rig.drawnFrame();
     stage.addChild(rig);
   }
   const resetPhase = (): void => {
@@ -805,21 +822,30 @@ export async function prepareBenchmarkStage(
       if (phase > 0) {
         r.player.advance(phase);
       }
+      posedFrames[i] = r.player.posedFrame();
     }
   };
-  const stepAll = (stepDt: number): void => {
+  const poseAll = (stepDt: number): void => {
     for (let i = 0; i < rigs.length; i++) {
-      rigs[i].advance(stepDt);
+      const r = rigs[i];
+      r.player.advance(stepDt);
+      posedFrames[i] = r.player.posedFrame();
     }
+  };
+  const drawAll = (): void => {
+    for (let i = 0; i < rigs.length; i++) {
+      rigs[i].renderer.render(posedFrames[i]);
+    }
+    renderer.render({ container: stage });
   };
   for (let f = 0; f < warmupFrames; f++) {
-    stepAll(dt);
-    renderer.render({ container: stage });
+    poseAll(dt);
+    drawAll();
   }
   gl.finish();
   counters.reset();
-  stepAll(dt);
-  renderer.render({ container: stage });
+  poseAll(dt);
+  drawAll();
   gl.finish();
   const drawCallsPerFrame = counters.drawCalls;
   const trianglesPerFrame = counters.triangles;
@@ -831,7 +857,8 @@ export async function prepareBenchmarkStage(
     warmupFrames,
     stage,
     resetPhase,
-    stepAll,
+    poseAll,
+    drawAll,
     dispose() {
       stage.removeChildren();
       for (const r of rigs) {
@@ -857,11 +884,15 @@ function quantile(sorted: number[], q: number): number {
 function summarizeFrameBatch(
   prepared: PreparedStage,
   times: number[],
+  poseTimes: number[],
+  drawTimes: number[],
   totalDrawCalls: number,
   totalTriangles: number,
 ): FrameBatchResult {
   const measuredFrames = times.length;
   const sorted = [...times].sort((a, b) => a - b);
+  const sortedPose = [...poseTimes].sort((a, b) => a - b);
+  const sortedDraw = [...drawTimes].sort((a, b) => a - b);
   const sum = times.reduce((acc, v) => acc + v, 0);
   return {
     skeleton: prepared.skeleton,
@@ -875,6 +906,8 @@ function summarizeFrameBatch(
     meanMs: Number((sum / measuredFrames).toFixed(3)),
     minMs: Number(sorted[0].toFixed(3)),
     maxMs: Number(sorted[sorted.length - 1].toFixed(3)),
+    poseP50Ms: Number(quantile(sortedPose, 0.5).toFixed(3)),
+    drawP50Ms: Number(quantile(sortedDraw, 0.5).toFixed(3)),
     drawCallsPerFrame: Math.round(totalDrawCalls / measuredFrames),
     trianglesPerFrame: Math.round(totalTriangles / measuredFrames),
   };
@@ -885,23 +918,29 @@ export async function runPreparedFrames(measuredFrames = 300): Promise<FrameBatc
     throw new Error('BENCH_STAGE_NOT_PREPARED: call prepareBenchmarkStage() before runPreparedFrames()');
   }
   const prepared = activePreparedStage;
-  const { renderer, counters } = await getRenderer();
+  const { counters } = await getRenderer();
   const dt = 1 / 60;
   const times: number[] = new Array<number>(measuredFrames);
+  const poseTimes: number[] = new Array<number>(measuredFrames);
+  const drawTimes: number[] = new Array<number>(measuredFrames);
   let totalDrawCalls = 0;
   let totalTriangles = 0;
 
   for (let f = 0; f < measuredFrames; f++) {
     counters.reset();
     const t0 = performance.now();
-    prepared.stepAll(dt);
-    renderer.render({ container: prepared.stage });
-    times[f] = performance.now() - t0;
+    prepared.poseAll(dt);
+    const t1 = performance.now();
+    prepared.drawAll();
+    const t2 = performance.now();
+    poseTimes[f] = t1 - t0;
+    drawTimes[f] = t2 - t1;
+    times[f] = t2 - t0;
     totalDrawCalls += counters.drawCalls;
     totalTriangles += counters.triangles;
   }
 
-  return summarizeFrameBatch(prepared, times, totalDrawCalls, totalTriangles);
+  return summarizeFrameBatch(prepared, times, poseTimes, drawTimes, totalDrawCalls, totalTriangles);
 }
 
 export async function collectPreparedRuns(
@@ -924,8 +963,8 @@ export async function collectPreparedRuns(
   }
   // Keep CPU P-core frequency and GPU command queue in steady state right after GC
   for (let w = 0; w < 45; w++) {
-    prepared.stepAll(dt);
-    renderer.render({ container: prepared.stage });
+    prepared.poseAll(dt);
+    prepared.drawAll();
   }
 
   const set1: FrameBatchResult[] = [];
@@ -935,34 +974,145 @@ export async function collectPreparedRuns(
       set1.push(await runPreparedFrames(measuredFrames));
     } else {
       const times1: number[] = new Array<number>(measuredFrames);
+      const pose1: number[] = new Array<number>(measuredFrames);
+      const draw1: number[] = new Array<number>(measuredFrames);
       const times2: number[] = new Array<number>(measuredFrames);
+      const pose2: number[] = new Array<number>(measuredFrames);
+      const draw2: number[] = new Array<number>(measuredFrames);
       let drawCalls1 = 0;
       let triangles1 = 0;
       let drawCalls2 = 0;
       let triangles2 = 0;
       for (let f = 0; f < measuredFrames; f++) {
         counters.reset();
-        const t1 = performance.now();
-        prepared.stepAll(dt);
-        renderer.render({ container: prepared.stage });
-        times1[f] = performance.now() - t1;
+        const t10 = performance.now();
+        prepared.poseAll(dt);
+        const t11 = performance.now();
+        prepared.drawAll();
+        const t12 = performance.now();
+        pose1[f] = t11 - t10;
+        draw1[f] = t12 - t11;
+        times1[f] = t12 - t10;
         drawCalls1 += counters.drawCalls;
         triangles1 += counters.triangles;
 
         counters.reset();
-        const t2 = performance.now();
-        prepared.stepAll(dt);
-        renderer.render({ container: prepared.stage });
-        times2[f] = performance.now() - t2;
+        const t20 = performance.now();
+        prepared.poseAll(dt);
+        const t21 = performance.now();
+        prepared.drawAll();
+        const t22 = performance.now();
+        pose2[f] = t21 - t20;
+        draw2[f] = t22 - t21;
+        times2[f] = t22 - t20;
         drawCalls2 += counters.drawCalls;
         triangles2 += counters.triangles;
       }
-      set1.push(summarizeFrameBatch(prepared, times1, drawCalls1, triangles1));
-      set2.push(summarizeFrameBatch(prepared, times2, drawCalls2, triangles2));
+      set1.push(summarizeFrameBatch(prepared, times1, pose1, draw1, drawCalls1, triangles1));
+      set2.push(summarizeFrameBatch(prepared, times2, pose2, draw2, drawCalls2, triangles2));
     }
   }
   gl.finish();
   return { set1, set2 };
+}
+
+export async function checkDrawCallMutants(baseUrl = '/bench'): Promise<DrawCallMutantResult> {
+  const { renderer, counters } = await getRenderer();
+  const gl = renderer.gl;
+
+  // Mutant 1: enable per-instance RenderGroup (`renderGroup: true`) on 100 spineboy instances
+  const spineboyAssets = await getCachedRigPlayModel('spineboy', baseUrl);
+  const spineboyGrid = computePlacementGrid('spineboy', 100);
+  const spineboyPlacement = SKELETON_PLACEMENT.spineboy;
+  const stage1 = new Container();
+  const rigs1: PixiRig[] = [];
+  for (const slot of spineboyGrid) {
+    const rig = new PixiRig(spineboyAssets, {
+      ticker: null,
+      autoUpdate: false,
+      renderGroup: true,
+    });
+    rig.position.set(slot.x, slot.y);
+    rig.scale.set(slot.scale);
+    rig.play(spineboyPlacement.animation, { loop: true });
+    rigs1.push(rig);
+    stage1.addChild(rig);
+  }
+  counters.reset();
+  renderer.render({ container: stage1 });
+  gl.finish();
+  const renderGroupMutantSpineboy100x = counters.drawCalls;
+  stage1.removeChildren();
+  for (const r of rigs1) r.destroy({ children: true });
+  stage1.destroy({ children: true });
+
+  // Mutant 2: set MeshGeometry batchMode = 'auto' on 100 raptor instances
+  const raptorAssets = await getCachedRigPlayModel('raptor', baseUrl);
+  const raptorGrid = computePlacementGrid('raptor', 100);
+  const raptorPlacement = SKELETON_PLACEMENT.raptor;
+  const stage2 = new Container();
+  const rigs2: PixiRig[] = [];
+  for (const slot of raptorGrid) {
+    const rig = new PixiRig(raptorAssets, { ticker: null, autoUpdate: false });
+    rig.renderer.meshBatchMode = 'auto';
+    // Re-set existing geometries created during constructor's initial render to 'auto'
+    for (const child of rig.children) {
+      if ('geometry' in child && child.geometry) {
+        (child.geometry as { batchMode: 'auto' | 'batch' }).batchMode = 'auto';
+      }
+    }
+    rig.position.set(slot.x, slot.y);
+    rig.scale.set(slot.scale);
+    rig.play(raptorPlacement.animation, { loop: true });
+    rigs2.push(rig);
+    stage2.addChild(rig);
+  }
+  counters.reset();
+  renderer.render({ container: stage2 });
+  gl.finish();
+  const meshBatchAutoMutantRaptor100x = counters.drawCalls;
+  stage2.removeChildren();
+  for (const r of rigs2) r.destroy({ children: true });
+  stage2.destroy({ children: true });
+
+  // Mutant 3: both `renderGroup: true` and `meshBatchMode = 'auto'` on 100 raptor instances (reproducing old 300 draw calls)
+  const stage3 = new Container();
+  const rigs3: PixiRig[] = [];
+  for (const slot of raptorGrid) {
+    const rig = new PixiRig(raptorAssets, {
+      ticker: null,
+      autoUpdate: false,
+      renderGroup: true,
+    });
+    rig.renderer.meshBatchMode = 'auto';
+    for (const child of rig.children) {
+      if ('geometry' in child && child.geometry) {
+        (child.geometry as { batchMode: 'auto' | 'batch' }).batchMode = 'auto';
+      }
+    }
+    rig.position.set(slot.x, slot.y);
+    rig.scale.set(slot.scale);
+    rig.play(raptorPlacement.animation, { loop: true });
+    rigs3.push(rig);
+    stage3.addChild(rig);
+  }
+  counters.reset();
+  renderer.render({ container: stage3 });
+  gl.finish();
+  const combinedMutantRaptor100x = counters.drawCalls;
+  stage3.removeChildren();
+  for (const r of rigs3) r.destroy({ children: true });
+  stage3.destroy({ children: true });
+
+  return {
+    renderGroupMutantSpineboy100x,
+    meshBatchAutoMutantRaptor100x,
+    combinedMutantRaptor100x,
+    pass:
+      renderGroupMutantSpineboy100x === 100 &&
+      meshBatchAutoMutantRaptor100x === 201 &&
+      combinedMutantRaptor100x === 300,
+  };
 }
 
 export async function disposePreparedStage(): Promise<void> {
@@ -985,6 +1135,7 @@ export interface RigBenchHarness {
   prepareBenchmarkStage: typeof prepareBenchmarkStage;
   runPreparedFrames: typeof runPreparedFrames;
   collectPreparedRuns: typeof collectPreparedRuns;
+  checkDrawCallMutants: typeof checkDrawCallMutants;
   disposePreparedStage: typeof disposePreparedStage;
 }
 
@@ -1002,5 +1153,6 @@ window.__rigBench = {
   prepareBenchmarkStage,
   runPreparedFrames,
   collectPreparedRuns,
+  checkDrawCallMutants,
   disposePreparedStage,
 };

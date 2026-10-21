@@ -1651,10 +1651,18 @@ async function boundsProbe(options: BoundsProbeOptions): Promise<BoundsProbeResu
 export interface PixiRigRefusalAndFreezeResult {
   refusals: Array<{ name: string; threw: boolean; message: string }>;
   frozenAssetsLifecycleSucceeded: boolean;
+  defaultRenderGroupFalse: boolean;
+  optInRenderGroupTrue: boolean;
+  clippedRenderGroupTrue: boolean;
+  unclippedAfterClipRenderGroupFalse: boolean;
+  inPlaceMutatedVerticesUpdated: boolean;
+  allMeshGeometriesBatchMode: boolean;
 }
 
 async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeResult> {
   const walkAssets = await getAssets('walk');
+  const flexAssets = await getAssets('flex');
+  const figureAssets = await getAssets('figure');
   const refusals: Array<{ name: string; threw: boolean; message: string }> = [];
 
   const capture = (name: string, fn: () => void): void => {
@@ -1675,6 +1683,10 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
 
   capture('invalid-initial-timescale', () => {
     new PixiRig(walkAssets, { timescale: -1 });
+  });
+
+  capture('invalid-render-group', () => {
+    new PixiRig(walkAssets, { renderGroup: 'yes' as unknown as boolean });
   });
 
   const rig = new PixiRig(walkAssets, { ticker: null, autoUpdate: false });
@@ -1758,14 +1770,72 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
   frozenRig.renderer.render(frame);
   const b = frozenRig.bounds();
   const rootBone = frozenRig.bone(boneNames[0] ?? 'root');
+  const defaultRenderGroupFalse = frozenRig.isRenderGroup === false;
   frozenRig.destroy();
   if (b !== null && Number.isFinite(rootBone.x) && Number.isFinite(rootBone.y)) {
     frozenAssetsLifecycleSucceeded = true;
   }
 
+  const optInRig = new PixiRig(walkAssets, {
+    ticker: null,
+    autoUpdate: false,
+    renderGroup: true,
+  });
+  const optInRenderGroupTrue = optInRig.isRenderGroup === true;
+  optInRig.destroy();
+
+  const flexRig = new PixiRig(flexAssets, { ticker: null, autoUpdate: false });
+  flexRig.play('wave');
+  const allMeshGeometriesBatchMode =
+    flexRig.isRenderGroup === false &&
+    flexRig.children.every((child) => {
+      if (child instanceof Mesh) {
+        return child.geometry.batchMode === 'batch';
+      }
+      return true;
+    });
+  // Verify in-place mutation of an existing PosedMesh.vertices array still updates MeshGeometry.positions
+  const mutableFrame = flexRig.drawnFrame();
+  const meshSlot = mutableFrame.order.find((s): s is PosedMesh => s.kind === 'mesh');
+  let inPlaceMutatedVerticesUpdated = false;
+  if (meshSlot) {
+    const mutableVerts = [...meshSlot.vertices];
+    const clonedSlot: PosedMesh = { ...meshSlot, vertices: mutableVerts };
+    const customFrame: PosedFrame = {
+      ...mutableFrame,
+      order: mutableFrame.order.map((s) => (s === meshSlot ? clonedSlot : s)),
+    };
+    flexRig.renderer.render(customFrame);
+    const uploadsBefore = flexRig.renderer.positionUploadCount;
+    mutableVerts[0] = mutableVerts[0]! + 12.5;
+    flexRig.renderer.render(customFrame);
+    const uploadsAfter = flexRig.renderer.positionUploadCount;
+    const meshView = flexRig.children.find(
+      (c): c is Mesh<MeshGeometry> => c instanceof Mesh && c.label === meshSlot.slot,
+    );
+    inPlaceMutatedVerticesUpdated =
+      uploadsAfter === uploadsBefore + 1 &&
+      meshView !== undefined &&
+      meshView.geometry.positions[0] === Math.fround(mutableVerts[0]!);
+  }
+  flexRig.destroy();
+
+  const clippedRig = new PixiRig(figureAssets, { ticker: null, autoUpdate: false });
+  clippedRig.play('mask');
+  const clippedRenderGroupTrue = clippedRig.isRenderGroup === true;
+  clippedRig.play('walk');
+  const unclippedAfterClipRenderGroupFalse = clippedRig.isRenderGroup === false;
+  clippedRig.destroy();
+
   return {
     refusals,
     frozenAssetsLifecycleSucceeded,
+    defaultRenderGroupFalse,
+    optInRenderGroupTrue,
+    clippedRenderGroupTrue,
+    unclippedAfterClipRenderGroupFalse,
+    inPlaceMutatedVerticesUpdated,
+    allMeshGeometriesBatchMode,
   };
 }
 

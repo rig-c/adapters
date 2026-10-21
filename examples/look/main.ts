@@ -241,11 +241,16 @@ async function bootLookDemo(): Promise<void> {
       return stepOnce(dt);
     },
     stepFrames(count: number, dt = 1 / 60): LookStepSnapshot {
-      let snap = controller!.snapshot;
-      for (let i = 0; i < count; i++) {
-        snap = stepOnce(dt);
+      if (!controller) {
+        throw new Error('LookDemo: controller not initialized');
       }
-      return snap;
+      if (count <= 0) {
+        return controller.snapshot;
+      }
+      for (let i = 0; i < count - 1; i++) {
+        controller.step(dt);
+      }
+      return stepOnce(dt);
     },
     async measureFrameTimesMs(frames = 120): Promise<FrameTimingReport> {
       const wasRunningRaf = rafId !== 0;

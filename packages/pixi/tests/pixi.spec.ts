@@ -1230,6 +1230,7 @@ test.describe('Issue #4 — PixiRig live player in a Pixi scene', () => {
     const byName = new Map(res.refusals.map((r) => [r.name, r.message]));
     expect(byName.get('invalid-assets')).toContain('invalid assets');
     expect(byName.get('invalid-initial-timescale')).toContain('invalid timescale=-1');
+    expect(byName.get('invalid-render-group')).toContain('invalid renderGroup=yes');
     expect(byName.get('unknown-animation')).toContain('nonexistent_animation_xyz');
     expect(byName.get('empty-animation-name')).toContain('invalid animation name');
     expect(byName.get('unknown-bone')).toContain('nonexistent_bone_xyz');
@@ -1245,6 +1246,12 @@ test.describe('Issue #4 — PixiRig live player in a Pixi scene', () => {
     expect(byName.get('bounds-after-destroy')).toContain('destroyed PixiRig');
 
     expect(res.frozenAssetsLifecycleSucceeded).toBe(true);
+    expect(res.defaultRenderGroupFalse).toBe(true);
+    expect(res.optInRenderGroupTrue).toBe(true);
+    expect(res.clippedRenderGroupTrue).toBe(true);
+    expect(res.unclippedAfterClipRenderGroupFalse).toBe(true);
+    expect(res.inPlaceMutatedVerticesUpdated).toBe(true);
+    expect(res.allMeshGeometriesBatchMode).toBe(true);
 
     // Confirm on-disk rig files remain completely unmodified after all Issue #2, #3, and #4 tests.
     const afterDigests = snapshotDigests(RIGS_DIR);

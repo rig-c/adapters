@@ -28,7 +28,7 @@
     "verify": "bun run build:libraries && bun run typecheck && bun run lint && bun run check:packages && bun run check:release && bun run smoke && bun run test"
   },
   "dependencies": {
-    "@rig-c/play": "1.10.0",
+    "@rig-c/play": "1.12.0",
     "pixi.js": "8.22.0",
     "@rig-c/pixi": "workspace:*",
     "phaser": "4.2.1",
@@ -40,7 +40,7 @@
     "@playwright/test": "1.62.1",
     "@types/node": "^22",
     "eslint": "^10.9.0",
-    "rig-c": "2.52.0",
+    "rig-c": "2.64.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.67.0",
     "vite": "^6.0.0",

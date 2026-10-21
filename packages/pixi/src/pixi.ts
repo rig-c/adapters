@@ -314,6 +314,7 @@ function drawClipIntoGraphics(graphics: Graphics, clip: ValidatedClip): void {
 }
 
 interface PreparedSlotCommon {
+  poolKey: string;
   blendMode: BLEND_MODES;
   color: number;
   alpha: number;
@@ -321,33 +322,44 @@ interface PreparedSlotCommon {
   clipPlan: ValidatedClip | null;
 }
 
-interface PreparedRegionSlot extends PreparedSlotCommon {
-  kind: 'region';
-  slot: PosedRegion;
-  texture: Texture;
-  matrix: Matrix;
-}
-
-interface PreparedMeshSlot extends PreparedSlotCommon {
-  kind: 'mesh';
-  slot: PosedMesh;
+interface PreparedSlotItem extends PreparedSlotCommon {
+  kind: 'region' | 'mesh';
+  slot: PosedSlot;
   texture: Texture;
 }
-
-type PreparedSlot = PreparedRegionSlot | PreparedMeshSlot;
 
 interface MeshSlotEntry {
   mesh: Mesh<MeshGeometry>;
   geometry: MeshGeometry;
   positions: Float32Array;
+  verticesRef: readonly number[] | null;
   uvsRef: readonly number[] | null;
   trianglesRef: readonly number[] | null;
+  page: string | null;
+  pma: boolean | null;
+  texture: Texture | null;
   darkFilter: ColorMatrixFilter | null;
 }
 
 interface RegionSlotEntry {
   sprite: Sprite;
   darkFilter: ColorMatrixFilter | null;
+  uvsRef: readonly number[] | null;
+  page: string | null;
+  pma: boolean | null;
+  texture: Texture | null;
+  c0: number;
+  c1: number;
+  c2: number;
+  c3: number;
+  c4: number;
+  c5: number;
+}
+
+interface ValidatedPageInfo {
+  pageImage: HTMLImageElement;
+  pw: number;
+  ph: number;
 }
 
 interface SharedPageSourceEntry {
@@ -437,6 +449,18 @@ export class PixiRenderer {
    * as the negative control for Bar 3's page texture unload check.
    */
   releasePageSourcesOnDispose = true;
+  /**
+   * When true, promotes `this.root` into its own PixiJS `RenderGroup` even when
+   * no clipping mask is active. Defaults to `false` so multiple `PixiRig`
+   * instances in the same container batch together in a single draw call.
+   */
+  useRenderGroup = false;
+  /**
+   * Batch mode assigned to each `MeshGeometry` owned by this renderer. Defaults
+   * to `'batch'` so meshes exceeding PixiJS v8's 100-vertex `'auto'` threshold
+   * still batch with surrounding slots and instances.
+   */
+  meshBatchMode: 'auto' | 'batch' = 'batch';
 
   private readonly retainedPages = new Set<HTMLImageElement>();
   private readonly regionTextures = new Map<string, Texture>();
@@ -446,6 +470,10 @@ export class PixiRenderer {
   private readonly maskPool: Graphics[] = [];
   private rootMask: Graphics | null = null;
   private readonly validatedClips = new Map<PosedClip, ValidatedClip>();
+  private readonly validatedPages = new Map<string, ValidatedPageInfo>();
+  private readonly slotCounts = new Map<string, number>();
+  private readonly preparedPool: PreparedSlotItem[] = [];
+  private autoPromotedRenderGroup = false;
   private disposed = false;
 
   constructor(
@@ -529,25 +557,74 @@ export class PixiRenderer {
     }
 
     this.validatedClips.clear();
+    this.validatedPages.clear();
+    this.slotCounts.clear();
     const order = frame.order;
-    const prepared: PreparedSlot[] = new Array(order.length);
+    const slotCount = order.length;
+    const prepared = this.preparedPool;
+    const slotCounts = this.slotCounts;
 
-    for (let i = 0; i < order.length; i++) {
-      prepared[i] = this.prepareSlot(order[i]);
+    for (let i = 0; i < slotCount; i++) {
+      const slot = order[i];
+      const slotName =
+        slot && typeof slot === 'object' && typeof slot.slot === 'string' && slot.slot.length > 0
+          ? slot.slot
+          : '<unnamed>';
+      const occurrence = slotCounts.get(slotName) ?? 0;
+      slotCounts.set(slotName, occurrence + 1);
+      const poolKey = occurrence === 0 ? slotName : `${slotName}\u0000${occurrence}`;
+      let item = prepared[i];
+      if (!item) {
+        item = {
+          kind: 'region',
+          poolKey,
+          slot,
+          texture: Texture.EMPTY,
+          blendMode: 'normal',
+          color: 0xffffff,
+          alpha: 1,
+          darkMatrix: null,
+          clipPlan: null,
+        };
+        prepared[i] = item;
+      }
+      this.prepareSlot(slot, poolKey, item);
     }
 
-    // Ensure root is a RenderGroup so masks attached to root or its children
-    // share root's coordinate space (`(worldX, -worldY)`) under any ancestor transform.
-    if (!this.root.isRenderGroup) {
-      this.root.enableRenderGroup();
+    // Promote root to a RenderGroup only when explicitly requested or when a
+    // clipping mask is present (so unparented stencil mask Graphics share root's
+    // coordinate space `(worldX, -worldY)` under any ancestor transform, while
+    // unclipped multi-instance rigs batch across instances in one RenderGroup).
+    let hasClip = false;
+    for (let i = 0; i < slotCount; i++) {
+      if (prepared[i].clipPlan !== null) {
+        hasClip = true;
+        break;
+      }
+    }
+    if (this.useRenderGroup || hasClip) {
+      if (!this.root.isRenderGroup) {
+        this.root.enableRenderGroup();
+        this.autoPromotedRenderGroup = true;
+      }
+    } else if (this.autoPromotedRenderGroup && this.root.isRenderGroup) {
+      this.root.disableRenderGroup();
+      this.autoPromotedRenderGroup = false;
     }
 
     // Check whether one clip covers every slot in the frame (the whole-skeleton root clip case).
-    const firstClip = prepared.length > 0 ? prepared[0].slot.clip : undefined;
-    const allShareRootClip =
-      firstClip !== undefined && prepared.every((item) => item.slot.clip === firstClip);
+    const firstClip = slotCount > 0 ? prepared[0].slot.clip : undefined;
+    let allShareRootClip = firstClip !== undefined;
+    if (allShareRootClip) {
+      for (let i = 1; i < slotCount; i++) {
+        if (prepared[i].slot.clip !== firstClip) {
+          allShareRootClip = false;
+          break;
+        }
+      }
+    }
 
-    if (allShareRootClip && prepared[0].clipPlan !== null) {
+    if (allShareRootClip && firstClip !== undefined && prepared[0].clipPlan !== null) {
       if (!this.rootMask) {
         this.rootMask = new Graphics();
       }
@@ -559,24 +636,20 @@ export class PixiRenderer {
     }
 
     // Remove excess children from root if the previous frame had more slots.
-    while (this.root.children.length > prepared.length) {
+    while (this.root.children.length > slotCount) {
       this.root.removeChildAt(this.root.children.length - 1);
     }
 
-    const slotCounts = new Map<string, number>();
     let maskPoolIndex = 0;
 
-    for (let i = 0; i < prepared.length; i++) {
+    for (let i = 0; i < slotCount; i++) {
       const item = prepared[i];
-      const slotName = item.slot.slot;
-      const occurrence = slotCounts.get(slotName) ?? 0;
-      slotCounts.set(slotName, occurrence + 1);
-      const poolKey = occurrence === 0 ? slotName : `${slotName}\u0000${occurrence}`;
+      const { poolKey } = item;
 
       const view =
         item.kind === 'region'
-          ? this.updateRegionView(poolKey, item)
-          : this.updateMeshView(poolKey, item);
+          ? this.updateRegionView(poolKey, item, item.slot as PosedRegion)
+          : this.updateMeshView(poolKey, item, item.slot as PosedMesh);
 
       if (!allShareRootClip && item.clipPlan !== null && item.slot.clip !== undefined) {
         while (this.maskPool.length <= maskPoolIndex) {
@@ -593,7 +666,6 @@ export class PixiRenderer {
       if (this.root.children[i] !== view) {
         this.root.addChildAt(view, i);
       }
-      view.getGlobalTransform(view.worldTransform, false);
     }
   }
 
@@ -623,6 +695,10 @@ export class PixiRenderer {
       this.root.mask = null;
     }
     this.root.removeChildren();
+    if (this.autoPromotedRenderGroup && this.root.isRenderGroup) {
+      this.root.disableRenderGroup();
+      this.autoPromotedRenderGroup = false;
+    }
     if (this.rootMask) {
       this.rootMask.destroy();
       this.rootMask = null;
@@ -662,19 +738,44 @@ export class PixiRenderer {
     }
     this.retainedPages.clear();
     this.validatedClips.clear();
+    this.validatedPages.clear();
+    this.slotCounts.clear();
+    this.preparedPool.length = 0;
   }
 
-  private updateRegionView(poolKey: string, item: PreparedRegionSlot): Sprite {
+  private updateRegionView(poolKey: string, item: PreparedSlotItem, slot: PosedRegion): Sprite {
     let entry = this.regionPool.get(poolKey);
     if (!entry) {
       const sprite = new Sprite(Texture.EMPTY);
       sprite.roundPixels = false;
-      entry = { sprite, darkFilter: null };
+      entry = {
+        sprite,
+        darkFilter: null,
+        uvsRef: null,
+        page: null,
+        pma: null,
+        texture: null,
+        c0: NaN,
+        c1: NaN,
+        c2: NaN,
+        c3: NaN,
+        c4: NaN,
+        c5: NaN,
+      };
       this.regionPool.set(poolKey, entry);
     }
     const { sprite } = entry;
-    sprite.label = item.slot.slot;
-    sprite.texture = item.texture;
+    if (sprite.label !== slot.slot) {
+      sprite.label = slot.slot;
+    }
+    const textureChanged = entry.texture !== item.texture;
+    if (textureChanged) {
+      sprite.texture = item.texture;
+    }
+    entry.uvsRef = slot.uvs;
+    entry.page = slot.page;
+    entry.pma = slot.pma;
+    entry.texture = item.texture;
 
     this.applyColorAndBlend(entry, sprite, item);
 
@@ -682,17 +783,54 @@ export class PixiRenderer {
     // skew, and scale with rotation=0 rather than sprite.setFromMatrix(),
     // because PixiJS Matrix.decompose zeroes skew when |skewX + skewY| < 1e-5,
     // which would shift corners of large sprites by up to ~3.3e-5 px.
-    const m = item.matrix;
-    sprite.position.set(m.tx, m.ty);
-    sprite.rotation = 0;
-    sprite.skew.set(Math.atan2(m.c, m.d), Math.atan2(m.b, m.a));
-    sprite.scale.set(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d));
+    const corners = slot.corners;
+    const c0 = corners[0];
+    const c1 = corners[1];
+    const c2 = corners[2];
+    const c3 = corners[3];
+    const c4 = corners[4];
+    const c5 = corners[5];
+    if (
+      textureChanged ||
+      entry.c0 !== c0 ||
+      entry.c1 !== c1 ||
+      entry.c2 !== c2 ||
+      entry.c3 !== c3 ||
+      entry.c4 !== c4 ||
+      entry.c5 !== c5
+    ) {
+      entry.c0 = c0;
+      entry.c1 = c1;
+      entry.c2 = c2;
+      entry.c3 = c3;
+      entry.c4 = c4;
+      entry.c5 = c5;
+      const w = item.texture.orig.width;
+      const h = item.texture.orig.height;
+      const sblX = c0;
+      const sblY = -c1;
+      const sulX = c2;
+      const sulY = -c3;
+      const surX = c4;
+      const surY = -c5;
+      const a = (surX - sulX) / w;
+      const b = (surY - sulY) / w;
+      const c = (sblX - sulX) / h;
+      const d = (sblY - sulY) / h;
+      sprite.position.set(sulX, sulY);
+      sprite.rotation = 0;
+      sprite.skew.set(Math.atan2(c, d), Math.atan2(b, a));
+      sprite.scale.set(Math.sqrt(a * a + b * b), Math.sqrt(c * c + d * d));
+    }
 
     return sprite;
   }
 
-  private updateMeshView(poolKey: string, item: PreparedMeshSlot): Mesh<MeshGeometry> {
-    const { slot } = item;
+  private updateMeshView(
+    poolKey: string,
+    item: PreparedSlotItem,
+    slot: PosedMesh,
+  ): Mesh<MeshGeometry> {
     const verts = slot.vertices;
     let entry = this.meshPool.get(poolKey);
 
@@ -709,6 +847,7 @@ export class PixiRenderer {
         uvs,
         indices,
       });
+      geometry.batchMode = this.meshBatchMode;
       const mesh = new Mesh({
         geometry,
         texture: item.texture,
@@ -724,8 +863,12 @@ export class PixiRenderer {
         mesh,
         geometry,
         positions,
+        verticesRef: verts,
         uvsRef: slot.uvs,
         trianglesRef: slot.triangles,
+        page: slot.page,
+        pma: slot.pma,
+        texture: item.texture,
         darkFilter: null,
       };
       this.meshPool.set(poolKey, entry);
@@ -740,6 +883,7 @@ export class PixiRenderer {
         }
         entry.positions = positions;
         entry.geometry.positions = positions;
+        entry.verticesRef = verts;
         this.positionUploadCount++;
       } else {
         const positions = entry.positions;
@@ -753,6 +897,7 @@ export class PixiRenderer {
             changed = true;
           }
         }
+        entry.verticesRef = verts;
         if (changed) {
           entry.geometry.getBuffer('aPosition').update();
           this.positionUploadCount++;
@@ -774,11 +919,19 @@ export class PixiRenderer {
         this.triangleUploadCount++;
         this.geometryUploadCount = this.uvUploadCount + this.triangleUploadCount;
       }
+
+      entry.page = slot.page;
+      entry.pma = slot.pma;
+      entry.texture = item.texture;
     }
 
     const { mesh } = entry;
-    mesh.label = slot.slot;
-    mesh.texture = item.texture;
+    if (mesh.label !== slot.slot) {
+      mesh.label = slot.slot;
+    }
+    if (mesh.texture !== item.texture) {
+      mesh.texture = item.texture;
+    }
     this.applyColorAndBlend(entry, mesh, item);
 
     return mesh;
@@ -795,21 +948,21 @@ export class PixiRenderer {
       }
       entry.darkFilter.matrix = item.darkMatrix;
       entry.darkFilter.blendMode = item.blendMode;
-      view.tint = 0xffffff;
-      view.alpha = 1;
-      view.blendMode = 'normal';
+      if (view.tint !== 0xffffff) view.tint = 0xffffff;
+      if (view.alpha !== 1) view.alpha = 1;
+      if (view.blendMode !== 'normal') view.blendMode = 'normal';
       view.filters = [entry.darkFilter];
     } else {
       if (view.filters && view.filters.length > 0) {
         view.filters = [];
       }
-      view.tint = item.color;
-      view.alpha = item.alpha;
-      view.blendMode = item.blendMode;
+      if (view.tint !== item.color) view.tint = item.color;
+      if (view.alpha !== item.alpha) view.alpha = item.alpha;
+      if (view.blendMode !== item.blendMode) view.blendMode = item.blendMode;
     }
   }
 
-  private prepareSlot(slot: PosedSlot): PreparedSlot {
+  private prepareSlot(slot: PosedSlot, poolKey: string, out: PreparedSlotItem): void {
     if (!slot || typeof slot !== 'object') {
       throw new Error(
         'PixiRenderer: encountered invalid slot entry in frame.order (expected PosedSlot object)',
@@ -839,20 +992,26 @@ export class PixiRenderer {
       );
     }
 
-    const pageImage = this.assets.pageImages.get(slot.page);
-    if (!pageImage) {
-      throw new Error(
-        `PixiRenderer: slot "${slotName}" references page "${pageName}", which is missing from assets.pageImages (expected HTMLImageElement for "${pageName}")`,
-      );
-    }
+    let pageInfo = this.validatedPages.get(slot.page);
+    if (!pageInfo) {
+      const pageImage = this.assets.pageImages.get(slot.page);
+      if (!pageImage) {
+        throw new Error(
+          `PixiRenderer: slot "${slotName}" references page "${pageName}", which is missing from assets.pageImages (expected HTMLImageElement for "${pageName}")`,
+        );
+      }
 
-    const pw = pageImage.naturalWidth || pageImage.width;
-    const ph = pageImage.naturalHeight || pageImage.height;
-    if (!Number.isFinite(pw) || !Number.isFinite(ph) || pw <= 0 || ph <= 0) {
-      throw new Error(
-        `PixiRenderer: slot "${slotName}" page "${pageName}" has invalid image dimensions ${String(pw)}x${String(ph)} (expected positive decoded dimensions)`,
-      );
+      const pw = pageImage.naturalWidth || pageImage.width;
+      const ph = pageImage.naturalHeight || pageImage.height;
+      if (!Number.isFinite(pw) || !Number.isFinite(ph) || pw <= 0 || ph <= 0) {
+        throw new Error(
+          `PixiRenderer: slot "${slotName}" page "${pageName}" has invalid image dimensions ${String(pw)}x${String(ph)} (expected positive decoded dimensions)`,
+        );
+      }
+      pageInfo = { pageImage, pw, ph };
+      this.validatedPages.set(slot.page, pageInfo);
     }
+    const { pageImage, pw, ph } = pageInfo;
 
     assertFiniteTuple(slot.tint, 4, 'tint', slotName, pageName);
 
@@ -872,64 +1031,76 @@ export class PixiRenderer {
       clipPlan = cachedPlan;
     }
 
-    const { color, alpha } = tintToPixi(slot.tint);
+    const r = Math.round(clamp01(slot.tint[0]) * 255);
+    const g = Math.round(clamp01(slot.tint[1]) * 255);
+    const b = Math.round(clamp01(slot.tint[2]) * 255);
+    const color = (r << 16) | (g << 8) | b;
+    const alpha = clamp01(slot.tint[3]);
 
     if (slot.kind === 'region') {
       assertFiniteTuple(slot.corners, 8, 'corners', slotName, pageName);
-      assertFiniteTuple(slot.uvs, 8, 'uvs', slotName, pageName);
 
-      const texture = this.regionTextureFor(pageImage, pw, ph, slot);
-      const [blX, blY, ulX, ulY, urX, urY] = slot.corners;
-      const w = texture.orig.width;
-      const h = texture.orig.height;
+      const regionEntry = this.regionPool.get(poolKey);
+      let texture: Texture;
+      if (
+        !this.alwaysReuploadGeometry &&
+        regionEntry &&
+        regionEntry.uvsRef === slot.uvs &&
+        regionEntry.page === slot.page &&
+        regionEntry.pma === slot.pma &&
+        regionEntry.texture !== null &&
+        !regionEntry.texture.destroyed
+      ) {
+        this.sourceFor(pageImage, slot.pma);
+        texture = regionEntry.texture;
+      } else {
+        assertFiniteTuple(slot.uvs, 8, 'uvs', slotName, pageName);
+        texture = this.regionTextureFor(pageImage, pw, ph, slot);
+      }
 
-      const sblX = blX;
-      const sblY = -blY;
-      const sulX = ulX;
-      const sulY = -ulY;
-      const surX = urX;
-      const surY = -urY;
-
-      const a = (surX - sulX) / w;
-      const b = (surY - sulY) / w;
-      const c = (sblX - sulX) / h;
-      const d = (sblY - sulY) / h;
-      const tx = sulX;
-      const ty = sulY;
-
-      return {
-        kind: 'region',
-        slot,
-        texture,
-        blendMode,
-        color,
-        alpha,
-        darkMatrix,
-        clipPlan,
-        matrix: new Matrix(a, b, c, d, tx, ty),
-      };
+      out.kind = 'region';
+      out.poolKey = poolKey;
+      out.slot = slot;
+      out.texture = texture;
+      out.blendMode = blendMode;
+      out.color = color;
+      out.alpha = alpha;
+      out.darkMatrix = darkMatrix;
+      out.clipPlan = clipPlan;
+      return;
     }
 
     // slot.kind === 'mesh'
     assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName);
-    assertFiniteTuple(slot.uvs, slot.vertices.length, 'uvs', slotName, pageName);
+    const meshEntry = this.meshPool.get(poolKey);
 
-    if (
-      !Array.isArray(slot.triangles) ||
-      slot.triangles.length < 3 ||
-      slot.triangles.length % 3 !== 0
-    ) {
-      throw new Error(
-        `PixiRenderer: slot "${slotName}" on page "${pageName}" has invalid triangles length ${Array.isArray(slot.triangles) ? slot.triangles.length : 'non-array'} (expected multiple of 3 >= 3)`,
-      );
+    const sameVertexCount =
+      !this.alwaysReuploadGeometry &&
+      meshEntry !== undefined &&
+      meshEntry.positions.length === slot.vertices.length;
+
+    if (!sameVertexCount || meshEntry.uvsRef !== slot.uvs) {
+      assertFiniteTuple(slot.uvs, slot.vertices.length, 'uvs', slotName, pageName);
     }
-    const vertexCount = slot.vertices.length / 2;
-    for (let i = 0; i < slot.triangles.length; i++) {
-      const idx = slot.triangles[i];
-      if (!Number.isInteger(idx) || idx < 0 || idx >= vertexCount) {
+
+    if (!sameVertexCount || meshEntry.trianglesRef !== slot.triangles) {
+      if (
+        !Array.isArray(slot.triangles) ||
+        slot.triangles.length < 3 ||
+        slot.triangles.length % 3 !== 0
+      ) {
         throw new Error(
-          `PixiRenderer: slot "${slotName}" on page "${pageName}" has out-of-range triangle index triangles[${i}]=${String(idx)} (expected integer in 0..${vertexCount - 1})`,
+          `PixiRenderer: slot "${slotName}" on page "${pageName}" has invalid triangles length ${Array.isArray(slot.triangles) ? slot.triangles.length : 'non-array'} (expected multiple of 3 >= 3)`,
         );
+      }
+      const vertexCount = slot.vertices.length / 2;
+      for (let i = 0; i < slot.triangles.length; i++) {
+        const idx = slot.triangles[i];
+        if (!Number.isInteger(idx) || idx < 0 || idx >= vertexCount) {
+          throw new Error(
+            `PixiRenderer: slot "${slotName}" on page "${pageName}" has out-of-range triangle index triangles[${i}]=${String(idx)} (expected integer in 0..${vertexCount - 1})`,
+          );
+        }
       }
     }
     if (typeof slot.sequence !== 'number' || !Number.isInteger(slot.sequence)) {
@@ -938,17 +1109,30 @@ export class PixiRenderer {
       );
     }
 
-    const texture = this.pageTextureFor(pageImage, slot.page, slot.pma);
-    return {
-      kind: 'mesh',
-      slot,
-      texture,
-      blendMode,
-      color,
-      alpha,
-      darkMatrix,
-      clipPlan,
-    };
+    let texture: Texture;
+    if (
+      !this.alwaysReuploadGeometry &&
+      meshEntry &&
+      meshEntry.page === slot.page &&
+      meshEntry.pma === slot.pma &&
+      meshEntry.texture !== null &&
+      !meshEntry.texture.destroyed
+    ) {
+      this.sourceFor(pageImage, slot.pma);
+      texture = meshEntry.texture;
+    } else {
+      texture = this.pageTextureFor(pageImage, slot.page, slot.pma);
+    }
+
+    out.kind = 'mesh';
+    out.poolKey = poolKey;
+    out.slot = slot;
+    out.texture = texture;
+    out.blendMode = blendMode;
+    out.color = color;
+    out.alpha = alpha;
+    out.darkMatrix = darkMatrix;
+    out.clipPlan = clipPlan;
   }
 
   private sourceFor(pageImage: HTMLImageElement, pma: boolean): ImageSource {
@@ -1074,6 +1258,12 @@ export interface PixiRigOptions {
    * Defaults to `true` when `ticker !== null`.
    */
   autoUpdate?: boolean;
+  /**
+   * Whether to promote this rig's container into its own PixiJS `RenderGroup`
+   * unconditionally. Defaults to `false` so multiple `PixiRig` instances share
+   * their parent's batch.
+   */
+  renderGroup?: boolean;
 }
 
 /**
@@ -1124,6 +1314,11 @@ export class PixiRig extends Container {
         `PixiRig: invalid timescale=${String(rawScale)} (expected finite number >= 0)`,
       );
     }
+    if (options.renderGroup !== undefined && typeof options.renderGroup !== 'boolean') {
+      throw new Error(
+        `PixiRig: invalid renderGroup=${String(options.renderGroup)} (expected boolean)`,
+      );
+    }
 
     this.assets = assets;
     const host = document.createElement('div');
@@ -1138,6 +1333,9 @@ export class PixiRig extends Container {
     }
 
     this.renderer = new PixiRenderer(this, assets);
+    if (options.renderGroup === true) {
+      this.renderer.useRenderGroup = true;
+    }
     this.ticker = options.ticker === undefined ? Ticker.shared : options.ticker;
     this.autoUpdate = options.autoUpdate ?? this.ticker !== null;
 
