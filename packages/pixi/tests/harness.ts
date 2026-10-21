@@ -1654,6 +1654,8 @@ export interface PixiRigRefusalAndFreezeResult {
   defaultRenderGroupFalse: boolean;
   optInRenderGroupTrue: boolean;
   clippedRenderGroupTrue: boolean;
+  unclippedAfterClipRenderGroupFalse: boolean;
+  inPlaceMutatedVerticesUpdated: boolean;
   allMeshGeometriesBatchMode: boolean;
 }
 
@@ -1783,6 +1785,7 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
   optInRig.destroy();
 
   const flexRig = new PixiRig(flexAssets, { ticker: null, autoUpdate: false });
+  flexRig.play('wave');
   const allMeshGeometriesBatchMode =
     flexRig.isRenderGroup === false &&
     flexRig.children.every((child) => {
@@ -1791,11 +1794,37 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
       }
       return true;
     });
+  // Verify in-place mutation of an existing PosedMesh.vertices array still updates MeshGeometry.positions
+  const mutableFrame = flexRig.drawnFrame();
+  const meshSlot = mutableFrame.order.find((s): s is PosedMesh => s.kind === 'mesh');
+  let inPlaceMutatedVerticesUpdated = false;
+  if (meshSlot) {
+    const mutableVerts = [...meshSlot.vertices];
+    const clonedSlot: PosedMesh = { ...meshSlot, vertices: mutableVerts };
+    const customFrame: PosedFrame = {
+      ...mutableFrame,
+      order: mutableFrame.order.map((s) => (s === meshSlot ? clonedSlot : s)),
+    };
+    flexRig.renderer.render(customFrame);
+    const uploadsBefore = flexRig.renderer.positionUploadCount;
+    mutableVerts[0] = mutableVerts[0]! + 12.5;
+    flexRig.renderer.render(customFrame);
+    const uploadsAfter = flexRig.renderer.positionUploadCount;
+    const meshView = flexRig.children.find(
+      (c): c is Mesh<MeshGeometry> => c instanceof Mesh && c.label === meshSlot.slot,
+    );
+    inPlaceMutatedVerticesUpdated =
+      uploadsAfter === uploadsBefore + 1 &&
+      meshView !== undefined &&
+      meshView.geometry.positions[0] === Math.fround(mutableVerts[0]!);
+  }
   flexRig.destroy();
 
   const clippedRig = new PixiRig(figureAssets, { ticker: null, autoUpdate: false });
   clippedRig.play('mask');
   const clippedRenderGroupTrue = clippedRig.isRenderGroup === true;
+  clippedRig.play('walk');
+  const unclippedAfterClipRenderGroupFalse = clippedRig.isRenderGroup === false;
   clippedRig.destroy();
 
   return {
@@ -1804,6 +1833,8 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
     defaultRenderGroupFalse,
     optInRenderGroupTrue,
     clippedRenderGroupTrue,
+    unclippedAfterClipRenderGroupFalse,
+    inPlaceMutatedVerticesUpdated,
     allMeshGeometriesBatchMode,
   };
 }

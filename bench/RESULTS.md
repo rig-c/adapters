@@ -56,6 +56,8 @@ Command: `bash scripts/fetch-assets.sh && cat public/bench/manifest.json`
 
 Command: `bun run bench`
 
+> **Note**: The load-to-first-frame and back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`loadRigPlayModel` duplicate `skeleton.model.json` fetch, `collectPreparedRuns` frame interleaving, and `evaluateReproducibility` `3.0 ms` denominator floor).
+
 | Skeleton | Arm | Runs ($M$) | Load `p50` (ms) | Load `p95` (ms) | First-frame draw calls |
 | --- | --- | ---: | ---: | ---: | ---: |
 | `spineboy` | `spine-pixi-v8` | `7` | `22.600` | `30.810` | `1` |
@@ -118,6 +120,8 @@ Command: `bun run bench -- --check-repro --write-results bench/RESULTS.md`
 ## Bar 2 — Back-to-Back Reproducibility Check (`p50` within 5%)
 
 Command: `bun run bench -- --check-repro`
+
+> **Note**: The back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`evaluateReproducibility` `3.0 ms` denominator floor and `collectPreparedRuns` frame interleaving).
 
 | Skeleton | Instances | Arm | Run 1 `p50` (ms) | Run 2 `p50` (ms) | Abs delta (ms) | Relative delta (`<= 0.0500`) | Verdict |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | --- |

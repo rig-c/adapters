@@ -473,6 +473,7 @@ export class PixiRenderer {
   private readonly validatedPages = new Map<string, ValidatedPageInfo>();
   private readonly slotCounts = new Map<string, number>();
   private readonly preparedPool: PreparedSlotItem[] = [];
+  private autoPromotedRenderGroup = false;
   private disposed = false;
 
   constructor(
@@ -601,8 +602,14 @@ export class PixiRenderer {
         break;
       }
     }
-    if ((this.useRenderGroup || hasClip) && !this.root.isRenderGroup) {
-      this.root.enableRenderGroup();
+    if (this.useRenderGroup || hasClip) {
+      if (!this.root.isRenderGroup) {
+        this.root.enableRenderGroup();
+        this.autoPromotedRenderGroup = true;
+      }
+    } else if (this.autoPromotedRenderGroup && this.root.isRenderGroup) {
+      this.root.disableRenderGroup();
+      this.autoPromotedRenderGroup = false;
     }
 
     // Check whether one clip covers every slot in the frame (the whole-skeleton root clip case).
@@ -688,6 +695,10 @@ export class PixiRenderer {
       this.root.mask = null;
     }
     this.root.removeChildren();
+    if (this.autoPromotedRenderGroup && this.root.isRenderGroup) {
+      this.root.disableRenderGroup();
+      this.autoPromotedRenderGroup = false;
+    }
     if (this.rootMask) {
       this.rootMask.destroy();
       this.rootMask = null;
@@ -874,7 +885,7 @@ export class PixiRenderer {
         entry.geometry.positions = positions;
         entry.verticesRef = verts;
         this.positionUploadCount++;
-      } else if (this.alwaysReuploadGeometry || entry.verticesRef !== verts) {
+      } else {
         const positions = entry.positions;
         let changed = this.alwaysReuploadGeometry;
         for (let i = 0; i < verts.length; i += 2) {
@@ -1060,10 +1071,8 @@ export class PixiRenderer {
     }
 
     // slot.kind === 'mesh'
+    assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName);
     const meshEntry = this.meshPool.get(poolKey);
-    if (!meshEntry || this.alwaysReuploadGeometry || meshEntry.verticesRef !== slot.vertices) {
-      assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName);
-    }
 
     const sameVertexCount =
       !this.alwaysReuploadGeometry &&

@@ -179,6 +179,31 @@ async function startViteServer(port) {
   throw new Error(`BENCH_SERVER_TIMEOUT: Vite server did not start on port ${port}`);
 }
 
+export function evaluateBar1DrawCalls(frameRows, skeletons = ['spineboy', 'raptor']) {
+  const maxBySkeleton = { spineboy: 1, raptor: 3 };
+  const violations = [];
+  for (const skeleton of skeletons) {
+    const limit = maxBySkeleton[skeleton];
+    if (limit === undefined) continue;
+    const rows = frameRows.filter((r) => r.skeleton === skeleton && r.arm === 'rig-c-pixi');
+    if (rows.length === 0) {
+      violations.push(`${skeleton} missing rig-c-pixi rows`);
+      continue;
+    }
+    for (const row of rows) {
+      if (row.drawCallsPerFrame > limit) {
+        violations.push(
+          `${row.skeleton} ${row.instances}x rig-c-pixi drawCallsPerFrame=${row.drawCallsPerFrame} (expected <= ${limit})`,
+        );
+      }
+    }
+  }
+  return {
+    pass: violations.length === 0,
+    violations,
+  };
+}
+
 export function evaluateReproducibility(run1Rows, run2Rows, maxRelDelta = 0.05, floorMs = 3.0) {
   const comparisons = [];
   for (const r1 of run1Rows) {
@@ -434,6 +459,25 @@ export async function runBenchmarkSuite(options = {}) {
       }
     }
 
+    // Issue #41 Bar 1: Assert unmutated rig-c-pixi draw calls first (spineboy === 1, raptor <= 3)
+    const bar1DrawCalls = evaluateBar1DrawCalls(frameRows, skeletons);
+    if (!bar1DrawCalls.pass) {
+      throw new Error(
+        `BENCH_BAR1_DRAW_CALLS_FAILED: unmutated rig-c-pixi exceeded Bar 1 draw-call limits: ${bar1DrawCalls.violations.join('; ')}`,
+      );
+    }
+    const bar1SyntheticMutant = evaluateBar1DrawCalls(
+      frameRows.map((r) =>
+        r.arm === 'rig-c-pixi' ? { ...r, drawCallsPerFrame: r.drawCallsPerFrame + 10 } : r,
+      ),
+      skeletons,
+    );
+    if (bar1SyntheticMutant.pass) {
+      throw new Error(
+        'BENCH_MUTANT_SURVIVED: evaluateBar1DrawCalls passed when +10 draw calls were injected into rig-c-pixi rows',
+      );
+    }
+
     // Negative control mutants for Issue #41 Bar 1 (per-instance RenderGroup & MeshGeometry batchMode 'auto')
     const drawCallMutants = await page.evaluate(() => window.__rigBench.checkDrawCallMutants());
     if (!drawCallMutants.pass) {
@@ -659,6 +703,10 @@ function formatResultsMarkdown(report, reproReport) {
   lines.push('');
   lines.push('Command: `bun run bench`');
   lines.push('');
+  lines.push(
+    '> **Note**: The load-to-first-frame and back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`loadRigPlayModel` duplicate `skeleton.model.json` fetch, `collectPreparedRuns` frame interleaving, and `evaluateReproducibility` `3.0 ms` denominator floor).',
+  );
+  lines.push('');
   lines.push('| Skeleton | Arm | Runs ($M$) | Load `p50` (ms) | Load `p95` (ms) | First-frame draw calls |');
   lines.push('| --- | --- | ---: | ---: | ---: | ---: |');
   for (const row of report.loadToFirstFrame) {
@@ -713,6 +761,10 @@ function formatResultsMarkdown(report, reproReport) {
     lines.push('## Bar 2 — Back-to-Back Reproducibility Check (`p50` within 5%)');
     lines.push('');
     lines.push('Command: `bun run bench -- --check-repro`');
+    lines.push('');
+    lines.push(
+      '> **Note**: The back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`evaluateReproducibility` `3.0 ms` denominator floor and `collectPreparedRuns` frame interleaving).',
+    );
     lines.push('');
     lines.push('| Skeleton | Instances | Arm | Run 1 `p50` (ms) | Run 2 `p50` (ms) | Abs delta (ms) | Relative delta (`<= 0.0500`) | Verdict |');
     lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | --- |');

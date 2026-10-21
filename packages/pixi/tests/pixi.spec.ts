@@ -1249,6 +1249,8 @@ test.describe('Issue #4 — PixiRig live player in a Pixi scene', () => {
     expect(res.defaultRenderGroupFalse).toBe(true);
     expect(res.optInRenderGroupTrue).toBe(true);
     expect(res.clippedRenderGroupTrue).toBe(true);
+    expect(res.unclippedAfterClipRenderGroupFalse).toBe(true);
+    expect(res.inPlaceMutatedVerticesUpdated).toBe(true);
     expect(res.allMeshGeometriesBatchMode).toBe(true);
 
     // Confirm on-disk rig files remain completely unmodified after all Issue #2, #3, and #4 tests.
