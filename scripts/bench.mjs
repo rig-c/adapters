@@ -537,8 +537,16 @@ export async function runBenchmarkSuite(options = {}) {
       webglVersion: gpu.webglVersion,
     };
 
+    const headSha = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: root,
+      stdio: 'pipe',
+    })
+      .stdout.toString('utf8')
+      .trim();
+
     return {
       host: 'pixi',
+      measuredCommit: headSha || 'unknown',
       pixiVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/pixi.js/package.json'), 'utf8')).version,
       playVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/@rig-c/play/package.json'), 'utf8')).version,
       rigcVersion: manifest.rigcTag,
@@ -637,6 +645,7 @@ function formatResultsMarkdown(report, reproReport) {
   lines.push('## Environment & Provenance');
   lines.push('');
   lines.push('- **Command**: `bun run bench` (JSON output: `bun run bench -- --json`)');
+  lines.push(`- **Measured head commit**: \`${report.measuredCommit}\``);
   lines.push(`- **Host engine**: \`pixi.js@${report.pixiVersion}\``);
   lines.push(`- **Arm A (Official Spine runtime)**: \`@esotericsoftware/spine-pixi-v8@${report.spinePixiVersion}\``);
   lines.push(`- **Arm B (\`@rig-c/pixi\` over \`@rig-c/play\`)**: \`@rig-c/pixi\` + \`@rig-c/play@${report.playVersion}\` (\`rigc ${report.rigcVersion}\`)`);
@@ -718,7 +727,7 @@ function formatResultsMarkdown(report, reproReport) {
 
   lines.push('## Steady-State Frame Time (`p50` / `p95`), Pose vs Draw Split, Draw Calls, and JS Heap (`1x`, `10x`, `50x`, `100x`)');
   lines.push('');
-  lines.push('Command: `bun run bench`');
+  lines.push(`Command: \`bun run bench\` (measured at commit \`${report.measuredCommit}\`)`);
   lines.push('');
   lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Pose `p50` (ms) | Draw `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
   lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
@@ -733,7 +742,7 @@ function formatResultsMarkdown(report, reproReport) {
 
   lines.push('## Issue #41 — Before vs Pin-Bump Control vs After (Same Host)');
   lines.push('');
-  lines.push('Command: `bun run bench -- --check-repro --write-results bench/RESULTS.md`');
+  lines.push(`Command: \`bun run bench -- --check-repro --write-results bench/RESULTS.md\` (measured at commit \`${report.measuredCommit}\`)`);
   lines.push('');
   lines.push('- **Before (`#39` baseline)**: `@rig-c/pixi@0.1.1` (unconditional `this.root.enableRenderGroup()`, `MeshGeometry` `batchMode = \'auto\'`) + `@rig-c/play@1.10.0` (`rigc v2.52.0`).');
   lines.push('- **Pin-Bump Control**: `@rig-c/pixi@0.1.1` (unmodified) + `@rig-c/play@1.12.0` (`rigc v2.64.1`). Built `skeleton.model.json` files for `spineboy` (`748,024 B`, SHA-256 `06bb6830...`) and `raptor` (`917,106 B`, SHA-256 `4b02193c...`) are byte-identical (`0 B` delta); draw calls at `100x` remained `100` (`spineboy`) and `300` (`raptor`); `raptor` frame `p50` improved from `0.792 ms -> 0.482 ms` (`1x`) and `47.222 ms -> 41.858 ms` (`100x`) from `@rig-c/play@1.12.0` alone.');
