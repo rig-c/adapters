@@ -32,8 +32,8 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright.outputs.version }}
       - name: Bound apt network requests
         run: |
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-network-bounds > /dev/null
-          apt-config shell CI_APT_RETRIES Acquire::Retries CI_APT_HTTP_TIMEOUT Acquire::http::Timeout CI_APT_HTTPS_TIMEOUT Acquire::https::Timeout
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee -a /etc/apt/apt.conf > /dev/null
+          bun scripts/check-apt-network.mjs
       - run: bunx playwright install-deps chromium webkit
       - run: bunx playwright install chromium webkit
       - run: bun run check:release
