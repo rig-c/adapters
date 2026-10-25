@@ -20,7 +20,22 @@ jobs:
       - run: bun run lint
       - run: bun run check:packages
       - run: bun run fetch-assets
-      - run: bunx playwright install --with-deps chromium webkit
+      - name: Resolve Playwright version
+        id: playwright
+        run: |
+          playwright_version="$(bun -p "require('@playwright/test/package.json').version")"
+          printf 'version=%s\n' "$playwright_version" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browser downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ steps.playwright.outputs.version }}
+      - name: Bound apt network requests
+        run: |
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-network-bounds > /dev/null
+          apt-config shell CI_APT_RETRIES Acquire::Retries CI_APT_HTTP_TIMEOUT Acquire::http::Timeout CI_APT_HTTPS_TIMEOUT Acquire::https::Timeout
+      - run: bunx playwright install-deps chromium webkit
+      - run: bunx playwright install chromium webkit
       - run: bun run check:release
       - run: bun run smoke
       - run: bun run test

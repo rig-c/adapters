@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { Manifest } from 'release-please';
 import { parse } from 'yaml';
-import { createServer } from 'vite';
+import { checkDevSource } from './dev-source-probe.mjs';
 import { root, run, workspaces, publishable } from './workspaces.mjs';
 import { assertPublicationEnvironment, releasePlan } from './release-plan.mjs';
 
@@ -123,32 +123,8 @@ try {
   const preview = run('bunx', ['--no-install', 'playwright', 'test', '--config', join(temp, 'playwright.config.ts'), '--project', 'chromium', '--grep', 'second host production harness'], { cwd: temp, env: { ...process.env, CI: '1', TEST_PORT: '4331' } });
   console.log(`[bar2:preview] new host harness built by unchanged generic Vite config and served in production preview: ${preview.trim()}; PASS`);
   // A clean dev consumer must use live source, even when no package dist exists.
-  const previousCwd = process.cwd();
-  let dev;
-  try {
-    process.chdir(temp);
-    dev = await createServer({ root: temp, configFile: join(temp, 'vite.config.ts'), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
-    await dev.listen();
-    const port = dev.httpServer.address().port;
-    const main = await (await fetch(`http://127.0.0.1:${port}/src/main.ts`)).text();
-    assert(main.includes('/packages/pixi/src/index.ts'), 'DEV_SOURCE: demo must resolve the live Pixi source entry');
-    const source = join(temp, 'packages/pixi/src/pixi.ts');
-    await fetch(`http://127.0.0.1:${port}/packages/pixi/src/pixi.ts`);
-    writeFileSync(source, readFileSync(source, 'utf8') + '\nexport const DEV_REFRESH_PROBE = \"fresh-source\";\n');
-    let refreshed = false;
-    for (let attempt = 0; attempt < 20 && !refreshed; attempt++) {
-      await new Promise((done) => setTimeout(done, 100));
-      const text = await (await fetch(`http://127.0.0.1:${port}/packages/pixi/src/pixi.ts`)).text();
-      refreshed = text.includes('DEV_REFRESH_PROBE');
-    }
-    assert(refreshed, 'DEV_REFRESH: source edit was not reflected without library rebuild');
-    console.log('[development:source] clean dev resolves source entry and source edit refreshes transformed module without package rebuild; PASS');
-  } finally {
-    if (dev) await dev.close();
-    process.chdir(previousCwd);
-  }
-
-
+  await checkDevSource(temp);
+  console.log(run('bun', [join(root, 'scripts/check-dev-source-probe.mjs')]).trim());
 
   async function dryRun(changedPath, messages = ['fix: confined host dry-run control']) {
     const calls = [];
