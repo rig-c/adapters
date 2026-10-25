@@ -21,7 +21,11 @@ jobs:
       PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - name: Install Bun without OS package dependencies
+        run: |
+          npm install --global bun@1.4.4
+          bun --version
+          bun --revision
       - run: bun install --frozen-lockfile
       - run: bun run build:libraries
       - run: bun run typecheck
