@@ -83,9 +83,12 @@ export interface LookStepSnapshot {
 
 /**
  * Natural frequency (rad/s) for a critically-damped 2D spring that settles within
- * 2 % of a step target in `0.15 s`: `(1 + 40 * 0.15) * exp(-40 * 0.15) = 0.01735 < 0.02`.
+ * 2 % of a step target in `0.30 s`: `(1 + 20 * 0.30) * exp(-20 * 0.30) = 0.01735 < 0.02`.
  */
-export const HEAD_SPRING_OMEGA0 = 40;
+export const HEAD_SPRING_OMEGA0 = 20;
+
+/** Interim calibrated whole-rig input; replace with head-local physics input when supported. */
+export const INTERIM_GLOBAL_PHYSICS_GAIN = 0.25;
 
 export function clampRange(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -561,7 +564,7 @@ export class LookController {
       dials.pageClamp.gazeY[1],
     );
 
-    // 2. Head target follows through a critically-damped spring (~0.15s settle),
+    // 2. Head target follows through a critically-damped spring (~0.30s settle),
     // clamped in the page to the rig's declared bands before reaching the rig.
     stepCriticallyDampedSpring2D(this.spring, this.pointerFx, this.pointerFy, dt);
     const hx = clampUnit(this.spring.x);
@@ -581,14 +584,17 @@ export class LookController {
     );
     this.currentBodyYaw = clampRange(hx * dials.B, dials.pageClamp.body[0], dials.pageClamp.body[1]);
 
-    // 3. Feed head angular velocity into play's world physics input (`rig.moved`).
+    // 3. Interim calibrated global input: the shipped mesh turn has no moving hair roots.
+    // Keep this explicitly global until play or the producer supplies head-local motion.
     const dYaw = this.currentHeadYaw - prevYaw;
     const dPitch = this.currentHeadPitch - prevPitch;
     const dRoll = this.currentHeadRoll - prevRoll;
     const angularDeltaDeg = Math.hypot(dYaw, dPitch, dRoll);
     const headAngularVelocityDegPerSec = dt > 0 ? angularDeltaDeg / dt : 0;
     const physicsRotationInputDeg =
-      angularDeltaDeg > 1e-9 ? -dYaw * 0.55 + dRoll - dPitch * 0.25 : 0;
+      angularDeltaDeg > 1e-9
+        ? INTERIM_GLOBAL_PHYSICS_GAIN * (-dYaw * 0.55 + dRoll - dPitch * 0.25)
+        : 0;
 
     if (physicsRotationInputDeg !== 0) {
       this.rig.moved({ rotation: physicsRotationInputDeg });

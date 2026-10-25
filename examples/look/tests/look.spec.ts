@@ -35,6 +35,31 @@ function walkRepoFiles(dir: string): string[] {
 }
 
 test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', () => {
+  test('Issue #46 — interim global impulse stays bounded and head follow settles at 0.30 s', async ({ page }) => {
+    await page.goto(LOOK_URL);
+    await page.waitForFunction(() => window.__lookDemo?.ready);
+    const measured = await page.evaluate(() => {
+      const api = window.__lookDemo!;
+      api.setPointerNormalized(0.8, 0);
+      const halfway = api.stepFrames(9, 1 / 60);
+      const settled = api.stepFrames(9, 1 / 60);
+      api.setPointerNormalized(-1, 0);
+      api.stepFrames(120, 1 / 60);
+      api.setPointerNormalized(1, 0);
+      const crossing = api.step(1 / 60);
+      return { halfway, settled, crossing };
+    });
+    console.log('[look:46:response]', JSON.stringify(measured));
+    // Still approaching at 0.15 s, within 2% at 0.30 s. Eyes keep their immediate response.
+    expect(Math.abs(measured.halfway.headYaw - 12)).toBeGreaterThan(12 * 0.02);
+    expect(Math.abs(measured.settled.headYaw - 12)).toBeLessThanOrEqual(12 * 0.02);
+    expect(measured.halfway.eyeX).toBe(0.8);
+    // The old uncalibrated whole-rig kick and an excessive gain must fail this ceiling.
+    expect(Math.abs(measured.crossing.physicsRotationInputDeg)).toBeGreaterThan(0);
+    expect(Math.abs(measured.crossing.physicsRotationInputDeg)).toBeLessThan(0.5);
+    expect(measured.crossing.maxHairBoneDeltaDeg).toBeGreaterThan(0);
+  });
+
   test('Bars 1–4: 1080p 60fps perf, rig-declared dials + missing-yaw static fallback, 4-corner spring/eye settle, and hair physics velocity', async ({
     page,
   }, testInfo) => {
@@ -168,8 +193,9 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
         `crossingMaxHairDelta=${crossingSnap.maxHairBoneDeltaDeg.toFixed(3)}deg`,
     );
     expect(crossingSnap.headAngularVelocityDegPerSec).toBeGreaterThan(50);
-    expect(Math.abs(crossingSnap.physicsRotationInputDeg)).toBeGreaterThan(0.5);
-    expect(crossingSnap.maxHairBoneDeltaDeg).toBeGreaterThan(2);
+    expect(Math.abs(crossingSnap.physicsRotationInputDeg)).toBeGreaterThan(0);
+    expect(Math.abs(crossingSnap.physicsRotationInputDeg)).toBeLessThan(0.5);
+    expect(crossingSnap.maxHairBoneDeltaDeg).toBeGreaterThan(0);
 
     // Neutral pose inspection for comparison against the 4 band corners:
     const neutralPose = await page.evaluate(() => {
