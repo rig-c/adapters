@@ -8,6 +8,20 @@ export function parseTimingProtocol(value: unknown = DEFAULT_TIMING_PROTOCOL): T
   throw new Error(`BENCH_TIMING_PROTOCOL: found "${String(value)}"; expected ${TIMING_PROTOCOLS.join(' or ')}`);
 }
 
+/** Accept both conventional CLI spellings; never silently ignore a selector. */
+export function parseTimingProtocolArgs(args: readonly string[]): TimingProtocol {
+  const selectors = args.flatMap((value, index) =>
+    value === '--timing-protocol' || value.startsWith('--timing-protocol=') ? [index] : []);
+  if (selectors.length === 0) return DEFAULT_TIMING_PROTOCOL;
+  if (selectors.length > 1) throw new Error('BENCH_TIMING_PROTOCOL: multiple selectors; expected one protocol');
+  const index = selectors[0];
+  const selector = args[index];
+  const value = selector.startsWith('--timing-protocol=')
+    ? selector.slice('--timing-protocol='.length)
+    : (args[index + 1] ?? '');
+  return parseTimingProtocol(value);
+}
+
 export function assertTimingProtocolRows(
   protocol: TimingProtocol,
   rows: ReadonlyArray<{ timingProtocol?: unknown }>,

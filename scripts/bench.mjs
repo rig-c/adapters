@@ -1,4 +1,4 @@
-import { parseTimingProtocol, assertTimingProtocolRows, timingProtocolDescription } from '../bench/timing-protocol.ts';
+import { parseTimingProtocol, parseTimingProtocolArgs, assertTimingProtocolRows, timingProtocolDescription } from '../bench/timing-protocol.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -707,7 +707,7 @@ export function formatResultsMarkdown(report, reproReport) {
   if (reproReport) {
     lines.push('## Bar 2 — Back-to-Back Reproducibility Check (`p50` within 5%)');
     lines.push('');
-    lines.push('Command: `bun run bench -- --check-repro`');
+    lines.push(`Command: \`${command} --check-repro\``);
     lines.push('');
     lines.push(
       '> **Note**: The back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`evaluateReproducibility` `3.0 ms` denominator floor and `collectPreparedRuns` frame interleaving).',
@@ -750,8 +750,7 @@ export function formatResultsMarkdown(report, reproReport) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const protocolIndex = args.indexOf('--timing-protocol');
-  const timingProtocol = parseTimingProtocol(protocolIndex === -1 ? undefined : (args[protocolIndex + 1] ?? ''));
+  const timingProtocol = parseTimingProtocolArgs(args);
   const isSmoke = args.includes('--smoke');
   const isJson = args.includes('--json');
   const checkRepro = args.includes('--check-repro');

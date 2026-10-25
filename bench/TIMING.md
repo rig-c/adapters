@@ -13,7 +13,7 @@ It does not isolate GPU execution, presentation latency, throughput or FPS.
 Pose and draw medians need not add up to the frame median.
 
 Use `bun run bench -- --timing-protocol cpu-submit-v1` for the historical
-boundary: the final timestamp immediately follows drawing, and a final
+boundary (the `--timing-protocol=cpu-submit-v1` spelling is also accepted): the final timestamp immediately follows drawing, and a final
 `gl.finish()` drains the collected batches outside all samples. CPU work and
 render submission can include driver back-pressure. The historical
 [RESULTS.md](RESULTS.md) numbers belong to this series and remain unchanged.

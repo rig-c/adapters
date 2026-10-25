@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { parseTimingProtocol, assertTimingProtocolRows, timingProtocolDescription } from './timing-protocol.ts';
+import { parseTimingProtocol, parseTimingProtocolArgs, assertTimingProtocolRows, timingProtocolDescription } from './timing-protocol.ts';
 import { evaluateReproducibility, formatResultsMarkdown } from '../scripts/bench.mjs';
 
 function assertBoundary(events, frames, complete) {
@@ -100,7 +100,12 @@ test('protocol provenance, named CLI refusal and mixed-series mutants', () => {
   expect(parseTimingProtocol()).toBe('gpu-complete-v2');
   for (const value of ['cpu-submit-v1', 'gpu-complete-v2']) expect(parseTimingProtocol(value)).toBe(value);
   for (const value of ['', 'gpu', null]) expect(() => parseTimingProtocol(value)).toThrow(/BENCH_TIMING_PROTOCOL/);
-  for (const args of [['--timing-protocol'], ['--timing-protocol', 'unknown']]) {
+  expect(parseTimingProtocolArgs([])).toBe('gpu-complete-v2');
+  for (const value of ['cpu-submit-v1', 'gpu-complete-v2']) {
+    expect(parseTimingProtocolArgs(['--timing-protocol', value])).toBe(value);
+    expect(parseTimingProtocolArgs([`--timing-protocol=${value}`])).toBe(value);
+  }
+  for (const args of [['--timing-protocol'], ['--timing-protocol', 'unknown'], ['--timing-protocol='], ['--timing-protocol=unknown'], ['--timing-protocol=cpu-submit-v1', '--timing-protocol', 'gpu-complete-v2']]) {
     const result = spawnSync('bun', ['scripts/bench.mjs', ...args], { encoding: 'utf8' });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('BENCH_TIMING_PROTOCOL');
@@ -139,5 +144,7 @@ test('Markdown labels completion and never mixes v2 with historical v1 timing ta
   const legacy = formatResultsMarkdown({ ...report, timingProtocol: 'cpu-submit-v1', frameTable: [{ ...row, timingProtocol: 'cpu-submit-v1' }] });
   expect(legacy).not.toContain('Before vs Pin-Bump Control vs After');
   expect(legacy).toContain('outside samples');
+  const repro = formatResultsMarkdown({ ...report, timingProtocol: 'cpu-submit-v1', frameTable: [{ ...row, timingProtocol: 'cpu-submit-v1' }] }, { comparisons: [], maxRelDelta: 0 });
+  expect(repro).toContain('Command: `bun run bench -- --timing-protocol cpu-submit-v1 --check-repro`');
   expect(readFileSync('bench/RESULTS.md', 'utf8')).toContain('Historical timing protocol: **cpu-submit-v1**');
 });
