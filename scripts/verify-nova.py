@@ -112,14 +112,19 @@ if '--update-oracle-lock' in os.sys.argv:
     run(['bun', 'scripts/prepare-oracle.mjs', '--update-lock'], 'oracle-lock')
     shutil.copyfile(root / 'tests/oracle/package-lock.json', out / 'oracle-package-lock.json')
 if '--prepare' not in os.sys.argv:
-    focused = '--phaser-only' in os.sys.argv
+    focused = '--phaser-only' in os.sys.argv or '--bench-only' in os.sys.argv
     for script in ['build:libraries', 'typecheck', 'lint'] + ([] if focused else ['check:packages']):
         run(['bun', 'run', script], script.replace(':', '-'))
     run(['bunx', '--no-install', 'playwright', 'install', 'chromium', 'webkit'], 'browser-install')
     if not focused:
         run(['bun', 'run', 'check:release'], 'check-release')
         run(['bun', 'run', 'smoke'], 'installed-smoke')
-    run(['bun', 'run', 'test'] + (['packages/phaser/tests'] if '--phaser-only' in os.sys.argv else []), 'parity-suite')
+    if '--bench-only' in os.sys.argv:
+        run(['bun', 'run', 'fetch-assets'], 'bench-assets')
+        run(['bun', 'run', 'test:bench'], 'bench-contract')
+        run(['bun', 'run', 'bench', '--', '--smoke', '--json'], 'bench-smoke')
+    else:
+        run(['bun', 'run', 'test'] + (['packages/phaser/tests'] if '--phaser-only' in os.sys.argv else []), 'parity-suite')
     if (root / 'test-results').is_dir():
         shutil.copytree(root / 'test-results', out / 'test-results', dirs_exist_ok=True)
     # Preserve the gated library artifacts for review; none are published.

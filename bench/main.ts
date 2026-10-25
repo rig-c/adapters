@@ -1,3 +1,4 @@
+import { DEFAULT_TIMING_PROTOCOL, parseTimingProtocol, type TimingProtocol } from './timing-protocol.ts';
 import { loadModel, type ModelAssets, type PosedFrame } from '@rig-c/play';
 import { PixiRig } from '@rig-c/pixi';
 import { Container, ImageSource, WebGLRenderer } from 'pixi.js';
@@ -44,6 +45,7 @@ export interface CorrectnessResult {
 }
 
 export interface FrameBatchResult {
+  timingProtocol: TimingProtocol;
   skeleton: BenchSkeleton;
   arm: BenchArm;
   instances: number;
@@ -888,6 +890,7 @@ function summarizeFrameBatch(
   drawTimes: number[],
   totalDrawCalls: number,
   totalTriangles: number,
+  timingProtocol: TimingProtocol,
 ): FrameBatchResult {
   const measuredFrames = times.length;
   const sorted = [...times].sort((a, b) => a - b);
@@ -895,6 +898,7 @@ function summarizeFrameBatch(
   const sortedDraw = [...drawTimes].sort((a, b) => a - b);
   const sum = times.reduce((acc, v) => acc + v, 0);
   return {
+    timingProtocol,
     skeleton: prepared.skeleton,
     arm: prepared.arm,
     instances: prepared.instances,
@@ -913,12 +917,17 @@ function summarizeFrameBatch(
   };
 }
 
-export async function runPreparedFrames(measuredFrames = 300): Promise<FrameBatchResult> {
+export async function runPreparedFrames(
+  measuredFrames = 300,
+  protocol: TimingProtocol = DEFAULT_TIMING_PROTOCOL,
+): Promise<FrameBatchResult> {
+  const timingProtocol = parseTimingProtocol(protocol);
   if (!activePreparedStage) {
     throw new Error('BENCH_STAGE_NOT_PREPARED: call prepareBenchmarkStage() before runPreparedFrames()');
   }
   const prepared = activePreparedStage;
-  const { counters } = await getRenderer();
+  const { renderer, counters } = await getRenderer();
+  const gl = renderer.gl;
   const dt = 1 / 60;
   const times: number[] = new Array<number>(measuredFrames);
   const poseTimes: number[] = new Array<number>(measuredFrames);
@@ -926,12 +935,17 @@ export async function runPreparedFrames(measuredFrames = 300): Promise<FrameBatc
   let totalDrawCalls = 0;
   let totalTriangles = 0;
 
+  // Exclude pending warm-up/prior work from the first v2 sample.
+  if (timingProtocol === 'gpu-complete-v2') {
+    gl.finish();
+  }
   for (let f = 0; f < measuredFrames; f++) {
     counters.reset();
     const t0 = performance.now();
     prepared.poseAll(dt);
     const t1 = performance.now();
     prepared.drawAll();
+    if (timingProtocol === 'gpu-complete-v2') gl.finish();
     const t2 = performance.now();
     poseTimes[f] = t1 - t0;
     drawTimes[f] = t2 - t1;
@@ -940,14 +954,16 @@ export async function runPreparedFrames(measuredFrames = 300): Promise<FrameBatc
     totalTriangles += counters.triangles;
   }
 
-  return summarizeFrameBatch(prepared, times, poseTimes, drawTimes, totalDrawCalls, totalTriangles);
+  return summarizeFrameBatch(prepared, times, poseTimes, drawTimes, totalDrawCalls, totalTriangles, timingProtocol);
 }
 
 export async function collectPreparedRuns(
   runs: number,
   measuredFrames: number,
   checkRepro: boolean,
+  protocol: TimingProtocol = DEFAULT_TIMING_PROTOCOL,
 ): Promise<{ set1: FrameBatchResult[]; set2: FrameBatchResult[] }> {
+  const timingProtocol = parseTimingProtocol(protocol);
   if (!activePreparedStage) {
     throw new Error('BENCH_STAGE_NOT_PREPARED: call prepareBenchmarkStage() before collectPreparedRuns()');
   }
@@ -967,11 +983,14 @@ export async function collectPreparedRuns(
     prepared.drawAll();
   }
 
+  if (timingProtocol === 'gpu-complete-v2') {
+    gl.finish();
+  }
   const set1: FrameBatchResult[] = [];
   const set2: FrameBatchResult[] = [];
   for (let r = 0; r < runs; r++) {
     if (!checkRepro) {
-      set1.push(await runPreparedFrames(measuredFrames));
+      set1.push(await runPreparedFrames(measuredFrames, timingProtocol));
     } else {
       const times1: number[] = new Array<number>(measuredFrames);
       const pose1: number[] = new Array<number>(measuredFrames);
@@ -989,6 +1008,7 @@ export async function collectPreparedRuns(
         prepared.poseAll(dt);
         const t11 = performance.now();
         prepared.drawAll();
+        if (timingProtocol === 'gpu-complete-v2') gl.finish();
         const t12 = performance.now();
         pose1[f] = t11 - t10;
         draw1[f] = t12 - t11;
@@ -1001,6 +1021,7 @@ export async function collectPreparedRuns(
         prepared.poseAll(dt);
         const t21 = performance.now();
         prepared.drawAll();
+        if (timingProtocol === 'gpu-complete-v2') gl.finish();
         const t22 = performance.now();
         pose2[f] = t21 - t20;
         draw2[f] = t22 - t21;
@@ -1008,8 +1029,8 @@ export async function collectPreparedRuns(
         drawCalls2 += counters.drawCalls;
         triangles2 += counters.triangles;
       }
-      set1.push(summarizeFrameBatch(prepared, times1, pose1, draw1, drawCalls1, triangles1));
-      set2.push(summarizeFrameBatch(prepared, times2, pose2, draw2, drawCalls2, triangles2));
+      set1.push(summarizeFrameBatch(prepared, times1, pose1, draw1, drawCalls1, triangles1, timingProtocol));
+      set2.push(summarizeFrameBatch(prepared, times2, pose2, draw2, drawCalls2, triangles2, timingProtocol));
     }
   }
   gl.finish();
