@@ -25,6 +25,7 @@
     "check:release": "bun scripts/check-release.mjs",
     "smoke": "bun scripts/install-smoke.mjs",
     "bench": "bun scripts/bench.mjs",
+    "test:bench": "playwright test --config bench/playwright.config.ts",
     "verify": "bun run build:libraries && bun run typecheck && bun run lint && bun run check:packages && bun run check:release && bun run smoke && bun run test"
   },
   "dependencies": {

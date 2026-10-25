@@ -1,3 +1,4 @@
+import { parseTimingProtocol, assertTimingProtocolRows, timingProtocolDescription } from '../bench/timing-protocol.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -205,6 +206,11 @@ export function evaluateBar1DrawCalls(frameRows, skeletons = ['spineboy', 'rapto
 }
 
 export function evaluateReproducibility(run1Rows, run2Rows, maxRelDelta = 0.05, floorMs = 3.0) {
+  const protocol = run1Rows[0]?.timingProtocol;
+  if (protocol === undefined) throw new Error('BENCH_TIMING_PROTOCOL: reproducibility rows have no protocol');
+  const expectedProtocol = parseTimingProtocol(protocol);
+  assertTimingProtocolRows(expectedProtocol, run1Rows);
+  assertTimingProtocolRows(expectedProtocol, run2Rows);
   const comparisons = [];
   for (const r1 of run1Rows) {
     const r2 = run2Rows.find(
@@ -241,6 +247,7 @@ export function evaluateReproducibility(run1Rows, run2Rows, maxRelDelta = 0.05, 
 }
 
 export async function runBenchmarkSuite(options = {}) {
+  const timingProtocol = parseTimingProtocol(options.timingProtocol);
   const skeletons = options.skeletons ?? ['spineboy', 'raptor'];
   const instanceCounts = options.instanceCounts ?? [1, 10, 50, 100];
   const runs = options.runs ?? 5;
@@ -358,7 +365,7 @@ export async function runBenchmarkSuite(options = {}) {
           ({ s, a, maxCount }) => window.__rigBench.prepareBenchmarkStage(s, a, maxCount, 90),
           { s: skeleton, a: arm, maxCount: maxWarmInstances },
         );
-        await page.evaluate(() => window.__rigBench.runPreparedFrames(90));
+        await page.evaluate((protocol) => window.__rigBench.runPreparedFrames(90, protocol), timingProtocol);
         await page.evaluate(() => window.__rigBench.disposePreparedStage());
       }
     }
@@ -375,6 +382,7 @@ export async function runBenchmarkSuite(options = {}) {
       drawCallsPerFrame,
       trianglesPerFrame,
     ) => ({
+      timingProtocol,
       skeleton,
       arm,
       instances,
@@ -407,10 +415,12 @@ export async function runBenchmarkSuite(options = {}) {
             { s: skeleton, a: arm, count: instances, warmup: warmupFrames },
           );
           const { set1, set2 } = await page.evaluate(
-            ({ rCount, frames, repro }) =>
-              window.__rigBench.collectPreparedRuns(rCount, frames, repro),
-            { rCount: runs, frames: measuredFrames, repro: Boolean(secondFrameRows) },
+            ({ rCount, frames, repro, protocol }) =>
+              window.__rigBench.collectPreparedRuns(rCount, frames, repro, protocol),
+            { rCount: runs, frames: measuredFrames, repro: Boolean(secondFrameRows), protocol: timingProtocol },
           );
+          assertTimingProtocolRows(timingProtocol, set1);
+          if (secondFrameRows) assertTimingProtocolRows(timingProtocol, set2);
           const run1P50s = set1.map((b) => b.p50Ms);
           const run1P95s = set1.map((b) => b.p95Ms);
           const run1Means = set1.map((b) => b.meanMs);
@@ -545,6 +555,8 @@ export async function runBenchmarkSuite(options = {}) {
       .trim();
 
     return {
+      timingProtocol,
+      timingDescription: timingProtocolDescription(timingProtocol),
       host: 'pixi',
       measuredCommit: headSha || 'unknown',
       pixiVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/pixi.js/package.json'), 'utf8')).version,
@@ -572,71 +584,12 @@ export async function runBenchmarkSuite(options = {}) {
   }
 }
 
-const ISSUE_39_BASELINE = {
-  playVersion: '1.10.0',
-  rigcVersion: 'v2.52.0',
-  bundles: {
-    rigAdapterOnlyRaw: 230_130,
-    rigAdapterOnlyGzip: 73_495,
-    rigWithPixiRaw: 553_898,
-    rigWithPixiGzip: 170_712,
-  },
-  loadToFirstFrame: {
-    'spineboy:spine-pixi-v8': { p50Ms: 27.125, p95Ms: 46.516, drawCalls: 1 },
-    'spineboy:rig-c-pixi': { p50Ms: 28.700, p95Ms: 32.323, drawCalls: 1 },
-    'raptor:spine-pixi-v8': { p50Ms: 32.615, p95Ms: 41.216, drawCalls: 1 },
-    'raptor:rig-c-pixi': { p50Ms: 41.065, p95Ms: 57.382, drawCalls: 3 },
-  },
-  frames: {
-    'spineboy:1:spine-pixi-v8': { p50Ms: 0.055, p95Ms: 0.086, drawCalls: 1 },
-    'spineboy:1:rig-c-pixi': { p50Ms: 0.325, p95Ms: 0.684, drawCalls: 1 },
-    'spineboy:10:spine-pixi-v8': { p50Ms: 0.300, p95Ms: 0.636, drawCalls: 1 },
-    'spineboy:10:rig-c-pixi': { p50Ms: 3.190, p95Ms: 4.746, drawCalls: 10 },
-    'spineboy:50:spine-pixi-v8': { p50Ms: 1.535, p95Ms: 3.171, drawCalls: 1 },
-    'spineboy:50:rig-c-pixi': { p50Ms: 21.020, p95Ms: 24.635, drawCalls: 50 },
-    'spineboy:100:spine-pixi-v8': { p50Ms: 5.773, p95Ms: 7.055, drawCalls: 1 },
-    'spineboy:100:rig-c-pixi': { p50Ms: 27.985, p95Ms: 33.194, drawCalls: 100 },
-    'raptor:1:spine-pixi-v8': { p50Ms: 0.130, p95Ms: 0.252, drawCalls: 1 },
-    'raptor:1:rig-c-pixi': { p50Ms: 0.792, p95Ms: 1.405, drawCalls: 3 },
-    'raptor:10:spine-pixi-v8': { p50Ms: 1.005, p95Ms: 1.420, drawCalls: 1 },
-    'raptor:10:rig-c-pixi': { p50Ms: 7.622, p95Ms: 9.614, drawCalls: 30 },
-    'raptor:50:spine-pixi-v8': { p50Ms: 6.225, p95Ms: 7.396, drawCalls: 1 },
-    'raptor:50:rig-c-pixi': { p50Ms: 34.763, p95Ms: 44.080, drawCalls: 150 },
-    'raptor:100:spine-pixi-v8': { p50Ms: 7.530, p95Ms: 20.576, drawCalls: 1 },
-    'raptor:100:rig-c-pixi': { p50Ms: 47.222, p95Ms: 68.121, drawCalls: 300 },
-  },
-};
-
-const PIN_BUMP_CONTROL = {
-  playVersion: '1.12.0',
-  rigcVersion: 'v2.64.1',
-  bundles: {
-    rigAdapterOnlyRaw: 242_560,
-    rigAdapterOnlyGzip: 77_175,
-    rigWithPixiRaw: 566_328,
-    rigWithPixiGzip: 174_332,
-  },
-  frames: {
-    'spineboy:1:spine-pixi-v8': { p50Ms: 0.095, p95Ms: 0.110, drawCalls: 1 },
-    'spineboy:1:rig-c-pixi': { p50Ms: 0.310, p95Ms: 0.366, drawCalls: 1 },
-    'spineboy:10:spine-pixi-v8': { p50Ms: 0.290, p95Ms: 0.359, drawCalls: 1 },
-    'spineboy:10:rig-c-pixi': { p50Ms: 2.305, p95Ms: 3.545, drawCalls: 10 },
-    'spineboy:50:spine-pixi-v8': { p50Ms: 1.180, p95Ms: 1.305, drawCalls: 1 },
-    'spineboy:50:rig-c-pixi': { p50Ms: 13.035, p95Ms: 15.654, drawCalls: 50 },
-    'spineboy:100:spine-pixi-v8': { p50Ms: 2.462, p95Ms: 3.304, drawCalls: 1 },
-    'spineboy:100:rig-c-pixi': { p50Ms: 28.725, p95Ms: 34.986, drawCalls: 100 },
-    'raptor:1:spine-pixi-v8': { p50Ms: 0.155, p95Ms: 0.217, drawCalls: 1 },
-    'raptor:1:rig-c-pixi': { p50Ms: 0.482, p95Ms: 0.874, drawCalls: 3 },
-    'raptor:10:spine-pixi-v8': { p50Ms: 0.550, p95Ms: 0.780, drawCalls: 1 },
-    'raptor:10:rig-c-pixi': { p50Ms: 4.080, p95Ms: 5.660, drawCalls: 30 },
-    'raptor:50:spine-pixi-v8': { p50Ms: 3.563, p95Ms: 4.714, drawCalls: 1 },
-    'raptor:50:rig-c-pixi': { p50Ms: 21.233, p95Ms: 26.212, drawCalls: 150 },
-    'raptor:100:spine-pixi-v8': { p50Ms: 6.235, p95Ms: 17.750, drawCalls: 1 },
-    'raptor:100:rig-c-pixi': { p50Ms: 41.858, p95Ms: 48.991, drawCalls: 300 },
-  },
-};
-
-function formatResultsMarkdown(report, reproReport) {
+export function formatResultsMarkdown(report, reproReport) {
+  if (report.timingProtocol === undefined) throw new Error('BENCH_TIMING_PROTOCOL: report has no protocol');
+  const timingProtocol = parseTimingProtocol(report.timingProtocol);
+  assertTimingProtocolRows(timingProtocol, report.frameTable);
+  if (report.secondFrameTable) assertTimingProtocolRows(timingProtocol, report.secondFrameTable);
+  const command = `bun run bench -- --timing-protocol ${timingProtocol}`;
   const lines = [];
   lines.push('# Benchmark Results — `pixi` (`@rig-c/pixi` vs `@esotericsoftware/spine-pixi-v8`)');
   lines.push('');
@@ -644,7 +597,9 @@ function formatResultsMarkdown(report, reproReport) {
   lines.push('');
   lines.push('## Environment & Provenance');
   lines.push('');
-  lines.push('- **Command**: `bun run bench` (JSON output: `bun run bench -- --json`)');
+  lines.push(`- **Command**: \`${command}\` (add \`--json\` for JSON)`);
+  lines.push(`- **Timing protocol**: \`${timingProtocol}\` — ${timingProtocolDescription(timingProtocol)}`);
+  lines.push('- **Comparison rule**: Compare only matching protocol IDs and recorded fixtures, dependencies, browser/GPU, workload and host conditions. Historical unlabeled results are cpu-submit-v1; a v2-v1 difference is not a runtime improvement.');
   lines.push(`- **Measured head commit**: \`${report.measuredCommit}\``);
   lines.push(`- **Host engine**: \`pixi.js@${report.pixiVersion}\``);
   lines.push(`- **Arm A (Official Spine runtime)**: \`@esotericsoftware/spine-pixi-v8@${report.spinePixiVersion}\``);
@@ -657,7 +612,7 @@ function formatResultsMarkdown(report, reproReport) {
 
   lines.push('## Bar 1 — Correctness Check Before Benchmark (`walk`, 3 sampled times)');
   lines.push('');
-  lines.push('Command: `bun run bench`');
+  lines.push(`Command: \`${command}\``);
   lines.push('');
   lines.push('| Skeleton | Animation | Sample times (s) | Max whole-canvas MAE (px, <= 2.0) | Max content-union MAE (px, <= 6.0) | Max shift-tolerant `badRatio` (<= 0.005) | Max `contentMismatch` (<= 0.020) | Mutant (`+0.15s` offset) whole-canvas MAE | Mutant verdict | Verdict |');
   lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |');
@@ -673,7 +628,7 @@ function formatResultsMarkdown(report, reproReport) {
 
   lines.push('## Runtime JS Bundle Size (minified ESM, `Bun.build`)');
   lines.push('');
-  lines.push('Command: `bun run bench`');
+  lines.push(`Command: \`${command}\``);
   lines.push('');
   lines.push('| Arm | Scope | Raw bytes | Gzip bytes (level 9) |');
   lines.push('| --- | --- | ---: | ---: |');
@@ -710,7 +665,7 @@ function formatResultsMarkdown(report, reproReport) {
 
   lines.push('## Load Time to First Rendered Frame');
   lines.push('');
-  lines.push('Command: `bun run bench`');
+  lines.push(`Command: \`${command}\``);
   lines.push('');
   lines.push(
     '> **Note**: The load-to-first-frame and back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`loadRigPlayModel` duplicate `skeleton.model.json` fetch, `collectPreparedRuns` frame interleaving, and `evaluateReproducibility` `3.0 ms` denominator floor).',
@@ -727,9 +682,9 @@ function formatResultsMarkdown(report, reproReport) {
 
   lines.push('## Steady-State Frame Time (`p50` / `p95`), Pose vs Draw Split, Draw Calls, and JS Heap (`1x`, `10x`, `50x`, `100x`)');
   lines.push('');
-  lines.push(`Command: \`bun run bench\` (measured at commit \`${report.measuredCommit}\`)`);
+  lines.push(`Command: \`${command}\` (measured at commit \`${report.measuredCommit}\`)`);
   lines.push('');
-  lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Pose `p50` (ms) | Draw `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
+  lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Pose `p50` (ms) | Draw/completion `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
   lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.frameTable) {
     const heapKiB = (row.heapUsedBytes / 1024).toFixed(1);
@@ -740,24 +695,7 @@ function formatResultsMarkdown(report, reproReport) {
   }
   lines.push('');
 
-  lines.push('## Issue #41 — Before vs Pin-Bump Control vs After (Same Host)');
-  lines.push('');
-  lines.push(`Command: \`bun run bench -- --check-repro --write-results bench/RESULTS.md\` (measured at commit \`${report.measuredCommit}\`)`);
-  lines.push('');
-  lines.push('- **Before (`#39` baseline)**: `@rig-c/pixi@0.1.1` (unconditional `this.root.enableRenderGroup()`, `MeshGeometry` `batchMode = \'auto\'`) + `@rig-c/play@1.10.0` (`rigc v2.52.0`).');
-  lines.push('- **Pin-Bump Control**: `@rig-c/pixi@0.1.1` (unmodified) + `@rig-c/play@1.12.0` (`rigc v2.64.1`). Built `skeleton.model.json` files for `spineboy` (`748,024 B`, SHA-256 `06bb6830...`) and `raptor` (`917,106 B`, SHA-256 `4b02193c...`) are byte-identical (`0 B` delta); draw calls at `100x` remained `100` (`spineboy`) and `300` (`raptor`); `raptor` frame `p50` improved from `0.792 ms -> 0.482 ms` (`1x`) and `47.222 ms -> 41.858 ms` (`100x`) from `@rig-c/play@1.12.0` alone.');
-  lines.push('- **After (`#41` batching fix)**: `@rig-c/pixi` (`RenderGroup` opt-in / clip-only + `geometry.batchMode = \'batch\'` + cached static `uvs`/`triangles` validation and redundant `getGlobalTransform` removal) + `@rig-c/play@1.12.0` (`rigc v2.64.1`).');
-  lines.push('');
-  lines.push('| Skeleton | Instances | Arm | Before (`#39`) `p50` (ms) | Before draw calls | Pin-Bump Control `p50` (ms) | Pin-Bump draw calls | After (`#41`) `p50` (ms) | After Pose `p50` (ms) | After Draw `p50` (ms) | After draw calls |');
-  lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
-  for (const row of report.frameTable) {
-    const key = `${row.skeleton}:${row.instances}:${row.arm}`;
-    const b = ISSUE_39_BASELINE.frames[key];
-    const p = PIN_BUMP_CONTROL.frames[key];
-    lines.push(
-      `| \`${row.skeleton}\` | \`${row.instances}x\` | \`${row.arm}\` | \`${b ? b.p50Ms.toFixed(3) : 'n/a'}\` | \`${b ? b.drawCalls : 'n/a'}\` | \`${p ? p.p50Ms.toFixed(3) : 'n/a'}\` | \`${p ? p.drawCalls : 'n/a'}\` | \`${row.p50Ms.toFixed(3)}\` | \`${row.poseP50Ms.toFixed(3)}\` | \`${row.drawP50Ms.toFixed(3)}\` | \`${row.drawCallsPerFrame}\` |`,
-    );
-  }
+  lines.push('Historical timing comparisons omitted. Compare separate reports only after verifying matching protocol, inputs and host conditions.');
   lines.push('');
   if (report.drawCallMutants) {
     lines.push(
@@ -800,14 +738,11 @@ function formatResultsMarkdown(report, reproReport) {
   lines.push(`- Disk missing-asset mutant refusal: \`${report.hygiene.diskRefusalMutant.refusedMessage}\` (\`PASS\`)`);
   lines.push(`- Browser missing-asset mutant refusal: \`${report.hygiene.browserRefusalMutant.message}\` (\`PASS\`)`);
   lines.push('');
-  lines.push('## Diagnostic Notes — Draw Calls & Multi-Instance Scaling');
+  // Historical prose contained measured ratios tied to the legacy host/run.
+  lines.push('## Timing Interpretation');
   lines.push('');
-  lines.push(
-    '- **Draw calls at `100x` (`1` on both `spineboy` and `raptor`)**: Removing unconditional `this.root.enableRenderGroup()` (leaving `RenderGroup` promotion to `options.renderGroup === true` or frames carrying a `clip` polygon) and setting `geometry.batchMode = \'batch\'` after `new MeshGeometry(...)` (working around PixiJS v8.22.0\'s `MeshGeometry` constructor overwriting `this.batchMode = \'auto\'`) reduces `rig-c-pixi` draw calls at `100x` from `100 -> 1` on `spineboy` and `300 -> 1` on `raptor`.',
-  );
-  lines.push(
-    '- **Pose (`@rig-c/play`) vs Draw (`@rig-c/pixi` + PixiJS WebGL) split at `100x`**: With draw calls reduced to `1`, the `@rig-c/pixi` adapter + PixiJS WebGL drawing phase (`Draw p50`) is within `2x` of the official `@esotericsoftware/spine-pixi-v8` arm on both skeletons. The remaining gap in total `Frame p50` (`Pose + Draw`) comes from stepping `100` independent `RigPlayer` instances on the CPU (`Pose p50` = $100 \\times$ the `1x` `@rig-c/play` posing cost, ~83–86% of total frame time at `100x`).',
-  );
+  lines.push(timingProtocolDescription(timingProtocol));
+  lines.push('Pose and draw medians need not sum to the frame median. These are unpaced wall-time samples, not FPS.');
   lines.push('');
 
   return lines.join('\n');
@@ -815,6 +750,8 @@ function formatResultsMarkdown(report, reproReport) {
 
 async function main() {
   const args = process.argv.slice(2);
+  const protocolIndex = args.indexOf('--timing-protocol');
+  const timingProtocol = parseTimingProtocol(protocolIndex === -1 ? undefined : (args[protocolIndex + 1] ?? ''));
   const isSmoke = args.includes('--smoke');
   const isJson = args.includes('--json');
   const checkRepro = args.includes('--check-repro');
@@ -852,6 +789,7 @@ async function main() {
   const warmupFrames = isSmoke ? 20 : 60;
 
   const report = await runBenchmarkSuite({
+    timingProtocol,
     skeletons,
     instanceCounts,
     runs,

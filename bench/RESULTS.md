@@ -1,5 +1,13 @@
 # Benchmark Results — `pixi` (`@rig-c/pixi` vs `@esotericsoftware/spine-pixi-v8`)
 
+> Historical timing protocol: **cpu-submit-v1**. These unchanged numbers time CPU
+> pose and render/submission, including driver back-pressure. GPU completion is
+> drained after the batches, outside the timed frames. They are not per-frame
+> GPU-complete timings. Use `--timing-protocol cpu-submit-v1` to reproduce that
+> boundary; the new default `gpu-complete-v2` is a separate series and must not be
+> compared with this table as a runtime improvement. See [timing protocols](TIMING.md).
+
+
 Every figure in this document is produced by the command printed alongside its section.
 
 ## Environment & Provenance
