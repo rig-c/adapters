@@ -38,3 +38,14 @@ machine baseline. Do not refresh historical tables with a different protocol.
 measurement timestamps for both arms and both collection paths. Missing and
 batch-only finish mutants are applied to served modules without modifying source
 files. These traces establish the wall-clock boundary; they do not time the GPU.
+
+Headless Chromium launches with `--disable-renderer-backgrounding`,
+`--disable-background-timer-throttling`, and
+`--disable-backgrounding-occluded-windows` (`BENCH_CHROMIUM_ARGS`, recorded in
+`report.machine.chromiumArgs`). For each `skeleton × instance` row, Pass 1
+interleaves the two arms' measured runs (`A, B, A, B, …`) and records each arm's
+per-run `p50` series in order (`runP50sMs`) alongside per-pair differences in
+`report.pairedFrameTable` (`pairDiffsMs`, `pairRelDiffs`, `pairRatios`). Pass
+`--compare-bundle <path>` to measure a candidate `@rig-c/play` or `@rig-c/pixi`
+build (`rig-c-pixi-compare`) AB-interleaved against the base `rig-c-pixi` arm in
+one invocation.

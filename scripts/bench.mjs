@@ -1,12 +1,287 @@
 import { parseTimingProtocol, parseTimingProtocolArgs, assertTimingProtocolRows, timingProtocolDescription } from '../bench/timing-protocol.ts';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { arch, cpus, hostname, platform, release, totalmem } from 'node:os';
+import { arch, cpus, platform, release, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { chromium } from '@playwright/test';
 import { root } from './workspaces.mjs';
+
+export const BENCH_CHROMIUM_ARGS = Object.freeze([
+  '--enable-gpu',
+  '--ignore-gpu-blocklist',
+  '--js-flags=--expose-gc',
+  '--enable-precise-memory-info',
+  '--disable-renderer-backgrounding',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+]);
+
+export function parseCompareBundleArgs(args) {
+  const selectors = args.flatMap((value, index) =>
+    value === '--compare-bundle' || value.startsWith('--compare-bundle=') ? [index] : [],
+  );
+  if (selectors.length === 0) return null;
+  if (selectors.length > 1) {
+    throw new Error('BENCH_COMPARE_BUNDLE: multiple selectors; expected one --compare-bundle path');
+  }
+  const index = selectors[0];
+  const selector = args[index];
+  const value = selector.startsWith('--compare-bundle=')
+    ? selector.slice('--compare-bundle='.length)
+    : (args[index + 1] ?? '');
+  if (!value || value.startsWith('--')) {
+    throw new Error('BENCH_COMPARE_BUNDLE: missing path after --compare-bundle');
+  }
+  return value;
+}
+
+function resolveCompareBundleEntry(compareBundleInput) {
+  const resolvedInput = resolve(root, compareBundleInput);
+  if (!existsSync(resolvedInput)) {
+    throw new Error(
+      `BENCH_COMPARE_BUNDLE: path not found "${compareBundleInput}" (${resolvedInput})`,
+    );
+  }
+  const st = statSync(resolvedInput);
+  if (!st.isDirectory()) return resolvedInput;
+
+  const candidates = [];
+  const pkgPath = join(resolvedInput, 'package.json');
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      const exp = pkg.exports?.['.'];
+      const exportImport = typeof exp === 'string' ? exp : exp?.import;
+      if (typeof exportImport === 'string') candidates.push(resolve(resolvedInput, exportImport));
+      if (typeof pkg.main === 'string') candidates.push(resolve(resolvedInput, pkg.main));
+    } catch {
+      // fall through to standard entry paths
+    }
+  }
+  candidates.push(
+    join(resolvedInput, 'dist/index.js'),
+    join(resolvedInput, 'src/index.ts'),
+    join(resolvedInput, 'packages/pixi/src/index.ts'),
+  );
+  for (const candidate of candidates) {
+    if (existsSync(candidate) && !statSync(candidate).isDirectory()) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    `BENCH_COMPARE_BUNDLE: no entry module found in directory "${compareBundleInput}" (${resolvedInput})`,
+  );
+}
+
+const PIXI_HOST_SHIM_CODE = `
+const p = globalThis.__rigBenchPixi;
+if (!p) throw new Error('BENCH_COMPARE_BUNDLE: globalThis.__rigBenchPixi is not initialized');
+export const {
+  ColorMatrixFilter,
+  Container,
+  Graphics,
+  ImageSource,
+  Matrix,
+  Mesh,
+  MeshGeometry,
+  Rectangle,
+  Sprite,
+  Texture,
+  Ticker,
+} = p;
+export default p;
+`;
+
+function hasNamedExports(esmText, names) {
+  const exportMatches = [...esmText.matchAll(/export\s*\{([^}]*)\}/g)];
+  const exported = new Set();
+  for (const m of exportMatches) {
+    for (const part of m[1].split(',')) {
+      const tokens = part.trim().split(/\s+as\s+/);
+      const exportedName = (tokens[1] ?? tokens[0] ?? '').trim();
+      if (exportedName) exported.add(exportedName);
+    }
+  }
+  for (const m of esmText.matchAll(/export\s+(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z0-9_$]+)/g)) {
+    exported.add(m[1]);
+  }
+  return names.every((n) => exported.has(n));
+}
+
+export async function prepareCompareBundle(compareBundleInput) {
+  const entryFile = resolveCompareBundleEntry(compareBundleInput);
+  const tmpDir = resolve(
+    root,
+    `node_modules/.cache/bench-compare-${process.pid}-${Date.now()}`,
+  );
+  rmSync(tmpDir, { recursive: true, force: true });
+  mkdirSync(tmpDir, { recursive: true });
+
+  const buildEsm = async (entryPath, external, plugins = [], aliasPlayTarget = null, shimPixiPath = null) => {
+    let buf;
+    if (typeof Bun !== 'undefined' && typeof Bun.build === 'function') {
+      const result = await Bun.build({
+        entrypoints: [entryPath],
+        minify: true,
+        format: 'esm',
+        target: 'browser',
+        external,
+        plugins,
+      });
+      if (!result.success || result.outputs.length === 0) {
+        throw new Error(
+          `BENCH_COMPARE_BUNDLE: failed to build "${compareBundleInput}": ${JSON.stringify(result.logs)}`,
+        );
+      }
+      buf = Buffer.from(await result.outputs[0].arrayBuffer());
+    } else {
+      const outPath = join(
+        tmpDir,
+        `out-${Math.random().toString(36).slice(2)}.mjs`,
+      );
+      const scriptPath = join(
+        tmpDir,
+        `build-${Math.random().toString(36).slice(2)}.mjs`,
+      );
+      writeFileSync(
+        scriptPath,
+        `import { writeFileSync } from 'node:fs';
+const plugins = [];
+const aliasPlayTarget = ${JSON.stringify(aliasPlayTarget)};
+const shimPixiPath = ${JSON.stringify(shimPixiPath)};
+if (aliasPlayTarget) {
+  plugins.push({
+    name: 'alias-compare-rig-play',
+    setup(build) {
+      build.onResolve({ filter: /^@rig-c\\/play$/ }, () => ({ path: aliasPlayTarget }));
+    },
+  });
+}
+if (shimPixiPath) {
+  plugins.push({
+    name: 'shim-pixi-host',
+    setup(build) {
+      build.onResolve({ filter: /^pixi\\.js$/ }, () => ({ path: shimPixiPath }));
+    },
+  });
+}
+const res = await Bun.build({
+  entrypoints: [${JSON.stringify(entryPath)}],
+  minify: true,
+  format: 'esm',
+  target: 'browser',
+  external: ${JSON.stringify(external)},
+  plugins,
+});
+if (!res.success || res.outputs.length === 0) {
+  console.error(JSON.stringify(res.logs));
+  process.exit(1);
+}
+writeFileSync(${JSON.stringify(outPath)}, Buffer.from(await res.outputs[0].arrayBuffer()));
+`,
+      );
+      const sub = spawnSync('bun', [scriptPath], { cwd: root, stdio: 'pipe' });
+      if (sub.status !== 0 || !existsSync(outPath)) {
+        throw new Error(
+          `BENCH_COMPARE_BUNDLE: failed to build "${compareBundleInput}": ${sub.stderr.toString('utf8')}`,
+        );
+      }
+      buf = readFileSync(outPath);
+    }
+    return {
+      buf,
+      text: buf.toString('utf8'),
+      rawBytes: buf.byteLength,
+      gzipBytes: gzipSync(buf, { level: 9 }).byteLength,
+    };
+  };
+
+  try {
+    let directBuild = null;
+    try {
+      directBuild = await buildEsm(entryFile, ['pixi.js']);
+    } catch (err) {
+      throw new Error(
+        `BENCH_COMPARE_BUNDLE: failed to bundle "${compareBundleInput}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    let finalEntryPath = entryFile;
+    let aliasPlugins = [];
+    let mode = 'rig-pixi-bundle';
+
+    if (hasNamedExports(directBuild.text, ['loadModel', 'PixiRig'])) {
+      finalEntryPath = entryFile;
+    } else if (hasNamedExports(directBuild.text, ['loadModel', 'RigPlayer'])) {
+      mode = 'rig-play';
+      finalEntryPath = join(tmpDir, 'compare-rig-entry.ts');
+      writeFileSync(
+        finalEntryPath,
+        `export { loadModel, RigPlayer } from ${JSON.stringify(entryFile)};
+export { PixiRenderer, PixiRig } from ${JSON.stringify(resolve(root, 'packages/pixi/src/index.ts'))};\n`,
+      );
+      aliasPlugins = [
+        {
+          name: 'alias-compare-rig-play',
+          setup(build) {
+            build.onResolve({ filter: /^@rig-c\/play$/ }, () => ({ path: entryFile }));
+          },
+        },
+      ];
+    } else {
+      throw new Error(
+        `BENCH_COMPARE_BUNDLE: "${compareBundleInput}" must export { loadModel, PixiRig } or a @rig-c/play module exporting { loadModel, RigPlayer }`,
+      );
+    }
+
+    const pixiShimPath = join(tmpDir, 'pixi-host-shim.mjs');
+    writeFileSync(pixiShimPath, PIXI_HOST_SHIM_CODE);
+    const browserPlugins = [
+      ...aliasPlugins,
+      {
+        name: 'shim-pixi-host',
+        setup(build) {
+          build.onResolve({ filter: /^pixi\.js$/ }, () => ({ path: pixiShimPath }));
+        },
+      },
+    ];
+
+    const [adapterAndRuntime, includingPixiHost, browserBuild] = await Promise.all([
+      buildEsm(finalEntryPath, ['pixi.js'], aliasPlugins, mode === 'rig-play' ? entryFile : null, null),
+      buildEsm(finalEntryPath, [], aliasPlugins, mode === 'rig-play' ? entryFile : null, null),
+      buildEsm(finalEntryPath, [], browserPlugins, mode === 'rig-play' ? entryFile : null, pixiShimPath),
+    ]);
+
+    if (!hasNamedExports(browserBuild.text, ['loadModel', 'PixiRig'])) {
+      throw new Error(
+        `BENCH_COMPARE_BUNDLE: compiled bundle for "${compareBundleInput}" is missing { loadModel, PixiRig } exports`,
+      );
+    }
+
+    const sha256 = createHash('sha256').update(adapterAndRuntime.buf).digest('hex');
+
+    return {
+      sourcePath: compareBundleInput,
+      resolvedPath: entryFile,
+      mode,
+      sha256,
+      adapterAndRuntime: {
+        rawBytes: adapterAndRuntime.rawBytes,
+        gzipBytes: adapterAndRuntime.gzipBytes,
+      },
+      includingPixiHost: {
+        rawBytes: includingPixiHost.rawBytes,
+        gzipBytes: includingPixiHost.gzipBytes,
+      },
+      browserCode: browserBuild.text,
+    };
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
 
 const REQUIRED_SKELETON_FILES = (name) => [
   'skeleton.model.json',
@@ -128,16 +403,16 @@ export { PixiRenderer, PixiRig } from ${JSON.stringify(resolve(root, 'packages/p
   }
 }
 
-function median(values) {
+function median(values, decimals = 3) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0
-    ? Number(((sorted[mid - 1] + sorted[mid]) / 2).toFixed(3))
-    : Number(sorted[mid].toFixed(3));
+    ? Number(((sorted[mid - 1] + sorted[mid]) / 2).toFixed(decimals))
+    : Number(sorted[mid].toFixed(decimals));
 }
 
-function quantile(values, q) {
+function quantile(values, q, decimals = 3) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const pos = (sorted.length - 1) * q;
@@ -146,7 +421,7 @@ function quantile(values, q) {
   const val = base + 1 < sorted.length
     ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
     : sorted[base];
-  return Number(val.toFixed(3));
+  return Number(val.toFixed(decimals));
 }
 
 async function allocatePort() {
@@ -186,7 +461,9 @@ export function evaluateBar1DrawCalls(frameRows, skeletons = ['spineboy', 'rapto
   for (const skeleton of skeletons) {
     const limit = maxBySkeleton[skeleton];
     if (limit === undefined) continue;
-    const rows = frameRows.filter((r) => r.skeleton === skeleton && r.arm === 'rig-c-pixi');
+    const rows = frameRows.filter(
+      (r) => r.skeleton === skeleton && (r.arm === 'rig-c-pixi' || r.arm === 'rig-c-pixi-compare'),
+    );
     if (rows.length === 0) {
       violations.push(`${skeleton} missing rig-c-pixi rows`);
       continue;
@@ -194,7 +471,7 @@ export function evaluateBar1DrawCalls(frameRows, skeletons = ['spineboy', 'rapto
     for (const row of rows) {
       if (row.drawCallsPerFrame > limit) {
         violations.push(
-          `${row.skeleton} ${row.instances}x rig-c-pixi drawCallsPerFrame=${row.drawCallsPerFrame} (expected <= ${limit})`,
+          `${row.skeleton} ${row.instances}x ${row.arm} drawCallsPerFrame=${row.drawCallsPerFrame} (expected <= ${limit})`,
         );
       }
     }
@@ -202,6 +479,140 @@ export function evaluateBar1DrawCalls(frameRows, skeletons = ['spineboy', 'rapto
   return {
     pass: violations.length === 0,
     violations,
+  };
+}
+
+export function computePairedFrameTable(frameRows, arms = ['spine-pixi-v8', 'rig-c-pixi']) {
+  if (!Array.isArray(arms) || arms.length !== 2) {
+    throw new Error(`BENCH_PAIRED_MISMATCH: expected 2 arms for ABAB pairing, got ${JSON.stringify(arms)}`);
+  }
+  const [armA, armB] = arms;
+  const protocol = frameRows[0]?.timingProtocol;
+  if (protocol === undefined) {
+    throw new Error('BENCH_TIMING_PROTOCOL: paired frame rows have no protocol');
+  }
+  const expectedProtocol = parseTimingProtocol(protocol);
+  assertTimingProtocolRows(expectedProtocol, frameRows);
+
+  const rowsA = frameRows.filter((r) => r.arm === armA);
+  if (rowsA.length === 0) {
+    throw new Error(`BENCH_PAIRED_MISMATCH: no rows found for armA "${armA}"`);
+  }
+  const paired = [];
+  for (const rowA of rowsA) {
+    const rowB = frameRows.find(
+      (r) => r.skeleton === rowA.skeleton && r.instances === rowA.instances && r.arm === armB,
+    );
+    if (!rowB) {
+      throw new Error(
+        `BENCH_PAIRED_MISMATCH: missing armB "${armB}" row for ${rowA.skeleton} ${rowA.instances}x`,
+      );
+    }
+    const runAP50s = Array.isArray(rowA.runP50sMs) ? rowA.runP50sMs : [rowA.p50Ms];
+    const runBP50s = Array.isArray(rowB.runP50sMs) ? rowB.runP50sMs : [rowB.p50Ms];
+    if (runAP50s.length === 0 || runAP50s.length !== runBP50s.length) {
+      throw new Error(
+        `BENCH_PAIRED_MISMATCH: ${rowA.skeleton} ${rowA.instances}x run count mismatch (${armA}=${runAP50s.length}, ${armB}=${runBP50s.length})`,
+      );
+    }
+    const pairDiffsMs = [];
+    const pairRelDiffs = [];
+    const pairRatios = [];
+    for (let r = 0; r < runAP50s.length; r++) {
+      const a = runAP50s[r];
+      const b = runBP50s[r];
+      if (!(a > 0) || !(b > 0)) {
+        throw new Error(
+          `BENCH_PAIRED_MISMATCH: ${rowA.skeleton} ${rowA.instances}x pair ${r} has non-positive p50 (${armA}=${a}, ${armB}=${b})`,
+        );
+      }
+      pairDiffsMs.push(Number((b - a).toFixed(3)));
+      pairRelDiffs.push(Number(((b - a) / a).toFixed(4)));
+      pairRatios.push(Number((b / a).toFixed(4)));
+    }
+    paired.push({
+      timingProtocol: expectedProtocol,
+      interleaving: 'ABAB',
+      skeleton: rowA.skeleton,
+      instances: rowA.instances,
+      runs: runAP50s.length,
+      armA,
+      armB,
+      armAP50Ms: rowA.p50Ms,
+      armBP50Ms: rowB.p50Ms,
+      armARunP50sMs: [...runAP50s],
+      armBRunP50sMs: [...runBP50s],
+      pairDiffsMs,
+      pairRelDiffs,
+      pairRatios,
+      p50DiffMs: median(pairDiffsMs, 3),
+      p95DiffMs: quantile(pairDiffsMs, 0.95, 3),
+      p50RelDiff: median(pairRelDiffs, 4),
+      p50Ratio: median(pairRatios, 4),
+    });
+  }
+  return paired;
+}
+
+export function evaluatePairedReproducibility(pairedRows1, pairedRows2, maxSpread = 0.05) {
+  const protocol = pairedRows1[0]?.timingProtocol;
+  if (protocol === undefined) {
+    throw new Error('BENCH_TIMING_PROTOCOL: paired reproducibility rows have no protocol');
+  }
+  const expectedProtocol = parseTimingProtocol(protocol);
+  assertTimingProtocolRows(expectedProtocol, pairedRows1);
+  assertTimingProtocolRows(expectedProtocol, pairedRows2);
+
+  const comparisons = [];
+  for (const p1 of pairedRows1) {
+    const p2 = pairedRows2.find(
+      (item) =>
+        item.skeleton === p1.skeleton &&
+        item.instances === p1.instances &&
+        item.armA === p1.armA &&
+        item.armB === p1.armB,
+    );
+    if (!p2) {
+      throw new Error(
+        `BENCH_REPRO_MISSING_ROW: paired row ${p1.skeleton} ${p1.instances}x (${p1.armA} vs ${p1.armB}) missing in second run`,
+      );
+    }
+    const absDiffSpreadMs = Number(Math.abs(p2.p50DiffMs - p1.p50DiffMs).toFixed(3));
+    const relDiffSpread = Number(
+      (absDiffSpreadMs / Math.max(Math.abs(p1.p50DiffMs), 1e-6)).toFixed(4),
+    );
+    const absRelDiffSpread = Number(Math.abs(p2.p50RelDiff - p1.p50RelDiff).toFixed(4));
+    const ratioRelSpread = Number(
+      (Math.abs(p2.p50Ratio - p1.p50Ratio) / Math.max(p1.p50Ratio, 1e-6)).toFixed(4),
+    );
+    const pass = relDiffSpread <= maxSpread;
+    const ratioPass = ratioRelSpread <= maxSpread;
+    comparisons.push({
+      skeleton: p1.skeleton,
+      instances: p1.instances,
+      armA: p1.armA,
+      armB: p1.armB,
+      run1P50DiffMs: p1.p50DiffMs,
+      run2P50DiffMs: p2.p50DiffMs,
+      absDiffSpreadMs,
+      relDiffSpread,
+      run1P50RelDiff: p1.p50RelDiff,
+      run2P50RelDiff: p2.p50RelDiff,
+      absRelDiffSpread,
+      run1P50Ratio: p1.p50Ratio,
+      run2P50Ratio: p2.p50Ratio,
+      ratioRelSpread,
+      pass,
+      ratioPass,
+    });
+  }
+  return {
+    maxRelDiffSpread: Math.max(...comparisons.map((c) => c.relDiffSpread)),
+    maxAbsRelDiffSpread: Math.max(...comparisons.map((c) => c.absRelDiffSpread)),
+    maxRatioRelSpread: Math.max(...comparisons.map((c) => c.ratioRelSpread)),
+    pass: comparisons.every((c) => c.pass),
+    ratioPass: comparisons.every((c) => c.ratioPass),
+    comparisons,
   };
 }
 
@@ -253,7 +664,13 @@ export async function runBenchmarkSuite(options = {}) {
   const runs = options.runs ?? 5;
   const warmupFrames = options.warmupFrames ?? 60;
   const measuredFrames = options.measuredFrames ?? 300;
-  const arms = ['spine-pixi-v8', 'rig-c-pixi'];
+  const compareBundleInput = options.compareBundle ?? null;
+  const compareBundleInfo = compareBundleInput
+    ? await prepareCompareBundle(compareBundleInput)
+    : null;
+  const arms = compareBundleInfo
+    ? ['rig-c-pixi', 'rig-c-pixi-compare']
+    : ['spine-pixi-v8', 'rig-c-pixi'];
 
   const benchDir = resolve(root, 'public/bench');
   const manifest = verifyBenchDiskAssets(benchDir, skeletons);
@@ -278,17 +695,18 @@ export async function runBenchmarkSuite(options = {}) {
   }
 
   const bundles = await measureBundles();
+  if (compareBundleInfo) {
+    bundles['rig-c-pixi-compare'] = {
+      adapterAndRuntime: compareBundleInfo.adapterAndRuntime,
+      includingPixiHost: compareBundleInfo.includingPixiHost,
+    };
+  }
   const port = await allocatePort();
   const { child: server, baseUrl } = await startViteServer(port);
 
   const browser = await chromium.launch({
     headless: true,
-    args: [
-      '--enable-gpu',
-      '--ignore-gpu-blocklist',
-      '--js-flags=--expose-gc',
-      '--enable-precise-memory-info',
-    ],
+    args: [...BENCH_CHROMIUM_ARGS],
   });
 
   try {
@@ -311,6 +729,14 @@ export async function runBenchmarkSuite(options = {}) {
 
     await page.goto(`${baseUrl}/bench/index.html`);
     await page.waitForFunction(() => Boolean(window.__rigBench));
+
+    if (compareBundleInfo) {
+      await page.evaluate(
+        ({ code, label }) =>
+          window.__rigBench.registerCompareBundle({ moduleCode: code, label }),
+        { code: compareBundleInfo.browserCode, label: compareBundleInfo.sourcePath },
+      );
+    }
 
     const gpu = await page.evaluate(() => window.__rigBench.getGpuInfo());
 
@@ -337,7 +763,7 @@ export async function runBenchmarkSuite(options = {}) {
     const correctness = {};
     for (const skeleton of skeletons) {
       const positive = await page.evaluate(
-        (s) => window.__rigBench.checkCorrectness(s, { times: [0, 0.35, 0.7], mutant: 'none' }),
+        (s) => window.__rigBench.checkCorrectness(s, { times: [0, 0.35, 0.7], mutant: 'none', arm: 'rig-c-pixi' }),
         skeleton,
       );
       if (!positive.pass) {
@@ -346,7 +772,7 @@ export async function runBenchmarkSuite(options = {}) {
         );
       }
       const mutant = await page.evaluate(
-        (s) => window.__rigBench.checkCorrectness(s, { times: [0, 0.35, 0.7], mutant: 'time-offset' }),
+        (s) => window.__rigBench.checkCorrectness(s, { times: [0, 0.35, 0.7], mutant: 'time-offset', arm: 'rig-c-pixi' }),
         skeleton,
       );
       if (mutant.pass) {
@@ -354,7 +780,26 @@ export async function runBenchmarkSuite(options = {}) {
           `BENCH_MUTANT_SURVIVED: ${skeleton} time-offset mutant passed Bar 1 correctness check: ${JSON.stringify(mutant)}`,
         );
       }
-      correctness[skeleton] = { positive, mutant };
+      let comparePositive = null;
+      if (compareBundleInfo) {
+        comparePositive = await page.evaluate(
+          (s) =>
+            window.__rigBench.checkCorrectness(s, {
+              times: [0, 0.35, 0.7],
+              mutant: 'none',
+              arm: 'rig-c-pixi-compare',
+            }),
+          skeleton,
+        );
+        if (!comparePositive.pass) {
+          throw new Error(
+            `BENCH_CORRECTNESS_FAILED: ${skeleton} (rig-c-pixi-compare) failed Bar 1 correctness check before benchmark: ${JSON.stringify(comparePositive)}`,
+          );
+        }
+      }
+      correctness[skeleton] = comparePositive
+        ? { positive, mutant, comparePositive }
+        : { positive, mutant };
     }
 
     // Pre-warm V8 TurboFan JIT and WebGL batcher buffer pools up to max instance count
@@ -383,6 +828,7 @@ export async function runBenchmarkSuite(options = {}) {
       trianglesPerFrame,
     ) => ({
       timingProtocol,
+      interleaving: 'ABAB',
       skeleton,
       arm,
       instances,
@@ -403,24 +849,46 @@ export async function runBenchmarkSuite(options = {}) {
       heapDeltaBytes: 0,
     });
 
-    // Pass 1: Frame time & draw calls across instance counts
+    // Pass 1: Frame time & draw calls across instance counts (ABAB interleaved per skeleton x instance row)
     const frameRows = [];
     const secondFrameRows = options.checkRepro ? [] : null;
     for (const skeleton of skeletons) {
       for (const instances of instanceCounts) {
+        const collectedByArm = new Map(
+          arms.map((arm) => [arm, { set1: [], set2: [] }]),
+        );
         for (const arm of arms) {
           await page.evaluate(
             ({ s, a, count, warmup }) =>
-              window.__rigBench.prepareBenchmarkStage(s, a, count, warmup),
+              window.__rigBench.prepareBenchmarkStage(s, a, count, warmup, '/bench', {
+                keepPrepared: true,
+              }),
             { s: skeleton, a: arm, count: instances, warmup: warmupFrames },
           );
-          const { set1, set2 } = await page.evaluate(
-            ({ rCount, frames, repro, protocol }) =>
-              window.__rigBench.collectPreparedRuns(rCount, frames, repro, protocol),
-            { rCount: runs, frames: measuredFrames, repro: Boolean(secondFrameRows), protocol: timingProtocol },
-          );
-          assertTimingProtocolRows(timingProtocol, set1);
-          if (secondFrameRows) assertTimingProtocolRows(timingProtocol, set2);
+        }
+        for (let r = 0; r < runs; r++) {
+          for (const arm of arms) {
+            const { set1, set2 } = await page.evaluate(
+              ({ a, frames, repro, protocol }) =>
+                window.__rigBench.runInterleavedArmBatch(a, frames, repro, protocol),
+              {
+                a: arm,
+                frames: measuredFrames,
+                repro: Boolean(secondFrameRows),
+                protocol: timingProtocol,
+              },
+            );
+            assertTimingProtocolRows(timingProtocol, set1);
+            if (secondFrameRows) assertTimingProtocolRows(timingProtocol, set2);
+            const bucket = collectedByArm.get(arm);
+            bucket.set1.push(...set1);
+            if (secondFrameRows) bucket.set2.push(...set2);
+          }
+        }
+        await page.evaluate(() => window.__rigBench.disposePreparedStage());
+
+        for (const arm of arms) {
+          const { set1, set2 } = collectedByArm.get(arm);
           const run1P50s = set1.map((b) => b.p50Ms);
           const run1P95s = set1.map((b) => b.p95Ms);
           const run1Means = set1.map((b) => b.meanMs);
@@ -464,10 +932,14 @@ export async function runBenchmarkSuite(options = {}) {
               ),
             );
           }
-          await page.evaluate(() => window.__rigBench.disposePreparedStage());
         }
       }
     }
+
+    const pairedFrameTable = computePairedFrameTable(frameRows, arms);
+    const secondPairedFrameTable = secondFrameRows
+      ? computePairedFrameTable(secondFrameRows, arms)
+      : null;
 
     // Issue #41 Bar 1: Assert unmutated rig-c-pixi draw calls first (spineboy === 1, raptor <= 3)
     const bar1DrawCalls = evaluateBar1DrawCalls(frameRows, skeletons);
@@ -496,28 +968,33 @@ export async function runBenchmarkSuite(options = {}) {
       );
     }
 
-    // Pass 2: Load time to first frame (cold network + PNG decode + WebGL upload)
+    // Pass 2: Load time to first frame (cold network + PNG decode + WebGL upload, interleaved ABAB)
     const loadResults = [];
     for (const skeleton of skeletons) {
-      for (const arm of arms) {
-        const loadSamples = [];
-        let drawCalls = 0;
-        for (let r = 0; r < runs; r++) {
+      const loadByArm = new Map(
+        arms.map((arm) => [arm, { samples: [], drawCalls: 0 }]),
+      );
+      for (let r = 0; r < runs; r++) {
+        for (const arm of arms) {
           const res = await page.evaluate(
             ({ s, a, idx }) => window.__rigBench.measureLoadToFirstFrame(s, a, idx),
             { s: skeleton, a: arm, idx: r },
           );
-          loadSamples.push(res.loadMs);
-          drawCalls = res.drawCalls;
+          const entry = loadByArm.get(arm);
+          entry.samples.push(res.loadMs);
+          entry.drawCalls = res.drawCalls;
         }
+      }
+      for (const arm of arms) {
+        const entry = loadByArm.get(arm);
         loadResults.push({
           skeleton,
           arm,
           runs,
-          p50Ms: median(loadSamples),
-          p95Ms: quantile(loadSamples, 0.95),
-          samplesMs: loadSamples,
-          firstFrameDrawCalls: drawCalls,
+          p50Ms: median(entry.samples),
+          p95Ms: quantile(entry.samples, 0.95),
+          samplesMs: entry.samples,
+          firstFrameDrawCalls: entry.drawCalls,
         });
       }
     }
@@ -545,6 +1022,7 @@ export async function runBenchmarkSuite(options = {}) {
       gpuVendor: gpu.vendor,
       gpuRenderer: gpu.renderer,
       webglVersion: gpu.webglVersion,
+      chromiumArgs: [...BENCH_CHROMIUM_ARGS],
     };
 
     const headSha = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
@@ -554,9 +1032,11 @@ export async function runBenchmarkSuite(options = {}) {
       .stdout.toString('utf8')
       .trim();
 
-    return {
+    const report = {
       timingProtocol,
       timingDescription: timingProtocolDescription(timingProtocol),
+      interleaving: 'ABAB',
+      arms,
       host: 'pixi',
       measuredCommit: headSha || 'unknown',
       pixiVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/pixi.js/package.json'), 'utf8')).version,
@@ -564,6 +1044,17 @@ export async function runBenchmarkSuite(options = {}) {
       rigcVersion: manifest.rigcTag,
       spineRuntimesRef: manifest.spineRuntimesRef,
       spinePixiVersion: '4.3.13',
+      ...(compareBundleInfo
+        ? {
+            compareBundle: {
+              sourcePath: compareBundleInfo.sourcePath,
+              mode: compareBundleInfo.mode,
+              sha256: compareBundleInfo.sha256,
+              adapterAndRuntime: compareBundleInfo.adapterAndRuntime,
+              includingPixiHost: compareBundleInfo.includingPixiHost,
+            },
+          }
+        : {}),
       machine,
       hygiene: {
         trackedBenchFiles: '(empty)',
@@ -576,8 +1067,11 @@ export async function runBenchmarkSuite(options = {}) {
       correctness,
       loadToFirstFrame: loadResults,
       frameTable: frameRows,
+      pairedFrameTable,
       secondFrameTable: secondFrameRows,
+      secondPairedFrameTable,
     };
+    return report;
   } finally {
     await browser.close();
     server.kill('SIGTERM');
@@ -589,7 +1083,18 @@ export function formatResultsMarkdown(report, reproReport) {
   const timingProtocol = parseTimingProtocol(report.timingProtocol);
   assertTimingProtocolRows(timingProtocol, report.frameTable);
   if (report.secondFrameTable) assertTimingProtocolRows(timingProtocol, report.secondFrameTable);
-  const command = `bun run bench -- --timing-protocol ${timingProtocol}`;
+  const arms = Array.isArray(report.arms) && report.arms.length === 2
+    ? report.arms
+    : ['spine-pixi-v8', 'rig-c-pixi'];
+  const pairedRows = Array.isArray(report.pairedFrameTable)
+    ? (assertTimingProtocolRows(timingProtocol, report.pairedFrameTable), report.pairedFrameTable)
+    : report.frameTable.some((r) => r.arm === arms[0]) && report.frameTable.some((r) => r.arm === arms[1])
+      ? computePairedFrameTable(report.frameTable, arms)
+      : [];
+  const compareArg = report.compareBundle?.sourcePath
+    ? ` --compare-bundle ${report.compareBundle.sourcePath}`
+    : '';
+  const command = `bun run bench -- --timing-protocol ${timingProtocol}${compareArg}`;
   const lines = [];
   lines.push('# Benchmark Results — `pixi` (`@rig-c/pixi` vs `@esotericsoftware/spine-pixi-v8`)');
   lines.push('');
@@ -599,15 +1104,24 @@ export function formatResultsMarkdown(report, reproReport) {
   lines.push('');
   lines.push(`- **Command**: \`${command}\` (add \`--json\` for JSON)`);
   lines.push(`- **Timing protocol**: \`${timingProtocol}\` — ${timingProtocolDescription(timingProtocol)}`);
+  lines.push(`- **Run interleaving**: \`${report.interleaving ?? 'ABAB'}\` (${arms.join(' <-> ')})`);
   lines.push('- **Comparison rule**: Compare only matching protocol IDs and recorded fixtures, dependencies, browser/GPU, workload and host conditions. Historical unlabeled results are cpu-submit-v1; a v2-v1 difference is not a runtime improvement.');
   lines.push(`- **Measured head commit**: \`${report.measuredCommit}\``);
   lines.push(`- **Host engine**: \`pixi.js@${report.pixiVersion}\``);
-  lines.push(`- **Arm A (Official Spine runtime)**: \`@esotericsoftware/spine-pixi-v8@${report.spinePixiVersion}\``);
-  lines.push(`- **Arm B (\`@rig-c/pixi\` over \`@rig-c/play\`)**: \`@rig-c/pixi\` + \`@rig-c/play@${report.playVersion}\` (\`rigc ${report.rigcVersion}\`)`);
+  if (report.compareBundle) {
+    lines.push(`- **Arm A (Base \`@rig-c/pixi\` over \`@rig-c/play\`)**: \`@rig-c/pixi\` + \`@rig-c/play@${report.playVersion}\` (\`rigc ${report.rigcVersion}\`)`);
+    lines.push(`- **Arm B (Compare bundle \`rig-c-pixi-compare\`)**: \`${report.compareBundle.sourcePath}\` (\`mode=${report.compareBundle.mode}\`, \`sha256=${report.compareBundle.sha256}\`)`);
+  } else {
+    lines.push(`- **Arm A (Official Spine runtime)**: \`@esotericsoftware/spine-pixi-v8@${report.spinePixiVersion}\``);
+    lines.push(`- **Arm B (\`@rig-c/pixi\` over \`@rig-c/play\`)**: \`@rig-c/pixi\` + \`@rig-c/play@${report.playVersion}\` (\`rigc ${report.rigcVersion}\`)`);
+  }
   lines.push(`- **Upstream Spine examples ref**: \`EsotericSoftware/spine-runtimes@${report.spineRuntimesRef}\``);
   lines.push(`- **Platform / CPU**: \`${report.machine.platform}\` — \`${report.machine.cpuModel}\` (\`${report.machine.cpuCores}\` cores, \`${report.machine.totalMemoryGiB} GiB\` RAM)`);
   lines.push(`- **GPU / WebGL**: \`${report.machine.gpuRenderer}\` (\`${report.machine.webglVersion}\`)`);
-  lines.push(`- **Protocol**: Headless Chromium via Playwright, \`900 x 640\` WebGL canvas (\`devicePixelRatio = 1\`), \`M = ${report.frameTable[0]?.runs ?? 5}\` runs, \`${report.frameTable[0]?.warmupFrames ?? 60}\` warm-up frames + \`${report.frameTable[0]?.measuredFrames ?? 300}\` measured frames (\`${report.frameTable[0]?.durationSeconds ?? 5} s\` at \`dt = 1/60 s\`) per run; median across runs reported.`);
+  if (Array.isArray(report.machine.chromiumArgs) && report.machine.chromiumArgs.length > 0) {
+    lines.push(`- **Chromium launch args**: \`${report.machine.chromiumArgs.join(' ')}\``);
+  }
+  lines.push(`- **Protocol**: Headless Chromium via Playwright, \`900 x 640\` WebGL canvas (\`devicePixelRatio = 1\`), \`M = ${report.frameTable[0]?.runs ?? 5}\` interleaved \`ABAB\` runs, \`${report.frameTable[0]?.warmupFrames ?? 60}\` warm-up frames + \`${report.frameTable[0]?.measuredFrames ?? 300}\` measured frames (\`${report.frameTable[0]?.durationSeconds ?? 5} s\` at \`dt = 1/60 s\`) per run; median across runs reported.`);
   lines.push('');
 
   lines.push('## Bar 1 — Correctness Check Before Benchmark (`walk`, 3 sampled times)');
@@ -638,12 +1152,22 @@ export function formatResultsMarkdown(report, reproReport) {
   lines.push(
     `| \`@rig-c/pixi\` + \`@rig-c/play@${report.playVersion}\` | Adapter + \`@rig-c/play\` + \`rig-c/core\` (\`pixi.js\` external) | \`${report.bundles['rig-c-pixi'].adapterAndRuntime.rawBytes.toLocaleString('en-US')}\` | \`${report.bundles['rig-c-pixi'].adapterAndRuntime.gzipBytes.toLocaleString('en-US')}\` |`,
   );
+  if (report.bundles['rig-c-pixi-compare']) {
+    lines.push(
+      `| \`rig-c-pixi-compare\` (\`${report.compareBundle?.sourcePath ?? 'compare'}\`) | Adapter + compare runtime (\`pixi.js\` external) | \`${report.bundles['rig-c-pixi-compare'].adapterAndRuntime.rawBytes.toLocaleString('en-US')}\` | \`${report.bundles['rig-c-pixi-compare'].adapterAndRuntime.gzipBytes.toLocaleString('en-US')}\` |`,
+    );
+  }
   lines.push(
     `| \`@esotericsoftware/spine-pixi-v8@${report.spinePixiVersion}\` | Full bundle including \`pixi.js@${report.pixiVersion}\` | \`${report.bundles['spine-pixi-v8'].includingPixiHost.rawBytes.toLocaleString('en-US')}\` | \`${report.bundles['spine-pixi-v8'].includingPixiHost.gzipBytes.toLocaleString('en-US')}\` |`,
   );
   lines.push(
     `| \`@rig-c/pixi\` + \`@rig-c/play@${report.playVersion}\` | Full bundle including \`pixi.js@${report.pixiVersion}\` | \`${report.bundles['rig-c-pixi'].includingPixiHost.rawBytes.toLocaleString('en-US')}\` | \`${report.bundles['rig-c-pixi'].includingPixiHost.gzipBytes.toLocaleString('en-US')}\` |`,
   );
+  if (report.bundles['rig-c-pixi-compare']) {
+    lines.push(
+      `| \`rig-c-pixi-compare\` (\`${report.compareBundle?.sourcePath ?? 'compare'}\`) | Full bundle including \`pixi.js@${report.pixiVersion}\` | \`${report.bundles['rig-c-pixi-compare'].includingPixiHost.rawBytes.toLocaleString('en-US')}\` | \`${report.bundles['rig-c-pixi-compare'].includingPixiHost.gzipBytes.toLocaleString('en-US')}\` |`,
+    );
+  }
   lines.push('');
 
   lines.push('## Model Asset Byte Sizes (`rigc ingest --art none` -> `rigc build --atlas-in`)');
@@ -684,16 +1208,37 @@ export function formatResultsMarkdown(report, reproReport) {
   lines.push('');
   lines.push(`Command: \`${command}\` (measured at commit \`${report.measuredCommit}\`)`);
   lines.push('');
-  lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Pose `p50` (ms) | Draw/completion `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
-  lines.push('| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('| Skeleton | Instances | Arm | Frame `p50` (ms) | Per-run `p50` in order (ms) | Pose `p50` (ms) | Draw/completion `p50` (ms) | Frame `p95` (ms) | Frame `mean` (ms) | Draw calls / frame | Triangles / frame | JS heap after warm-up (KiB) | Heap delta over empty stage (KiB) |');
+  lines.push('| --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const row of report.frameTable) {
     const heapKiB = (row.heapUsedBytes / 1024).toFixed(1);
     const deltaKiB = (row.heapDeltaBytes / 1024).toFixed(1);
+    const runSeries = Array.isArray(row.runP50sMs)
+      ? row.runP50sMs.map((v) => v.toFixed(3)).join(', ')
+      : row.p50Ms.toFixed(3);
     lines.push(
-      `| \`${row.skeleton}\` | \`${row.instances}x\` | \`${row.arm}\` | \`${row.p50Ms.toFixed(3)}\` | \`${row.poseP50Ms.toFixed(3)}\` | \`${row.drawP50Ms.toFixed(3)}\` | \`${row.p95Ms.toFixed(3)}\` | \`${row.meanMs.toFixed(3)}\` | \`${row.drawCallsPerFrame}\` | \`${row.trianglesPerFrame}\` | \`${heapKiB}\` | \`+${deltaKiB}\` |`,
+      `| \`${row.skeleton}\` | \`${row.instances}x\` | \`${row.arm}\` | \`${row.p50Ms.toFixed(3)}\` | \`[${runSeries}]\` | \`${row.poseP50Ms.toFixed(3)}\` | \`${row.drawP50Ms.toFixed(3)}\` | \`${row.p95Ms.toFixed(3)}\` | \`${row.meanMs.toFixed(3)}\` | \`${row.drawCallsPerFrame}\` | \`${row.trianglesPerFrame}\` | \`${heapKiB}\` | \`+${deltaKiB}\` |`,
     );
   }
   lines.push('');
+
+  if (pairedRows.length > 0) {
+    lines.push('## Paired AB Differences (`ABAB` Interleaved Runs)');
+    lines.push('');
+    lines.push(`Command: \`${command}\``);
+    lines.push('');
+    lines.push('| Skeleton | Instances | Arm A | Arm B | Arm A `p50` (ms) | Arm B `p50` (ms) | Paired diffs `B - A` in order (ms) | Paired `p50` diff `B - A` (ms) | Paired `p50` rel diff `(B - A) / A` | Paired `p50` ratio `B / A` |');
+    lines.push('| --- | ---: | --- | --- | ---: | ---: | --- | ---: | ---: | ---: |');
+    for (const p of pairedRows) {
+      const diffsStr = p.pairDiffsMs.map((d) => (d >= 0 ? `+${d.toFixed(3)}` : d.toFixed(3))).join(', ');
+      const p50DiffStr = p.p50DiffMs >= 0 ? `+${p.p50DiffMs.toFixed(3)}` : p.p50DiffMs.toFixed(3);
+      const p50RelStr = p.p50RelDiff >= 0 ? `+${p.p50RelDiff.toFixed(4)}` : p.p50RelDiff.toFixed(4);
+      lines.push(
+        `| \`${p.skeleton}\` | \`${p.instances}x\` | \`${p.armA}\` | \`${p.armB}\` | \`${p.armAP50Ms.toFixed(3)}\` | \`${p.armBP50Ms.toFixed(3)}\` | \`[${diffsStr}]\` | \`${p50DiffStr}\` | \`${p50RelStr}\` | \`${p.p50Ratio.toFixed(4)}x\` |`,
+      );
+    }
+    lines.push('');
+  }
 
   lines.push('Historical timing comparisons omitted. Compare separate reports only after verifying matching protocol, inputs and host conditions.');
   lines.push('');
@@ -751,6 +1296,7 @@ export function formatResultsMarkdown(report, reproReport) {
 async function main() {
   const args = process.argv.slice(2);
   const timingProtocol = parseTimingProtocolArgs(args);
+  const compareBundle = parseCompareBundleArgs(args);
   const isSmoke = args.includes('--smoke');
   const isJson = args.includes('--json');
   const checkRepro = args.includes('--check-repro');
@@ -789,6 +1335,7 @@ async function main() {
 
   const report = await runBenchmarkSuite({
     timingProtocol,
+    compareBundle,
     skeletons,
     instanceCounts,
     runs,
@@ -800,7 +1347,11 @@ async function main() {
   let reproReport = null;
   if (checkRepro && report.secondFrameTable) {
     reproReport = evaluateReproducibility(report.frameTable, report.secondFrameTable);
+    const pairedRepro = report.secondPairedFrameTable
+      ? evaluatePairedReproducibility(report.pairedFrameTable, report.secondPairedFrameTable)
+      : null;
     delete report.secondFrameTable;
+    delete report.secondPairedFrameTable;
     if (!reproReport.pass) {
       throw new Error(
         `BENCH_REPRODUCIBILITY_FAILED: maxRelDelta=${reproReport.maxRelDelta} > 0.05:\n${JSON.stringify(reproReport, null, 2)}`,
@@ -817,6 +1368,7 @@ async function main() {
     }
     report.reproducibility = {
       ...reproReport,
+      ...(pairedRepro ? { paired: pairedRepro } : {}),
       driftMutantCaught: !driftCheck.pass,
     };
   }
