@@ -64,7 +64,6 @@ function resolveCompareBundleEntry(compareBundleInput) {
   candidates.push(
     join(resolvedInput, 'dist/index.js'),
     join(resolvedInput, 'src/index.ts'),
-    join(resolvedInput, 'packages/pixi/src/index.ts'),
   );
   for (const candidate of candidates) {
     if (existsSync(candidate) && !statSync(candidate).isDirectory()) {
@@ -231,9 +230,13 @@ export { PixiRenderer, PixiRig } from ${JSON.stringify(resolve(root, 'packages/p
           },
         },
       ];
+    } else if (hasNamedExports(directBuild.text, ['PixiRig'])) {
+      throw new Error(
+        `BENCH_COMPARE_BUNDLE: "${compareBundleInput}" is an @rig-c/pixi package (exports PixiRig without loadModel) and is not a comparison input; pass an @rig-c/play package/bundle or a module exporting { loadModel, PixiRig }`,
+      );
     } else {
       throw new Error(
-        `BENCH_COMPARE_BUNDLE: "${compareBundleInput}" must export { loadModel, PixiRig } or a @rig-c/play module exporting { loadModel, RigPlayer }`,
+        `BENCH_COMPARE_BUNDLE: "${compareBundleInput}" must export { loadModel, PixiRig } or an @rig-c/play package/bundle exporting { loadModel, RigPlayer }`,
       );
     }
 

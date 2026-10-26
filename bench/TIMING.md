@@ -46,6 +46,6 @@ Headless Chromium launches with `--disable-renderer-backgrounding`,
 interleaves the two arms' measured runs (`A, B, A, B, …`) and records each arm's
 per-run `p50` series in order (`runP50sMs`) alongside per-pair differences in
 `report.pairedFrameTable` (`pairDiffsMs`, `pairRelDiffs`, `pairRatios`). Pass
-`--compare-bundle <path>` to measure a candidate `@rig-c/play` or `@rig-c/pixi`
-build (`rig-c-pixi-compare`) AB-interleaved against the base `rig-c-pixi` arm in
-one invocation.
+`--compare-bundle <path>` to measure a candidate `@rig-c/play` package/bundle
+or a module exporting `{ loadModel, PixiRig }` (`rig-c-pixi-compare`)
+AB-interleaved against the base `rig-c-pixi` arm in one invocation.

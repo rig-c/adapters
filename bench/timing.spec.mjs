@@ -359,7 +359,13 @@ test('--compare-bundle CLI parsing, bundle preparation, refusals, and browser AB
   try {
     await expect(prepareCompareBundle(badDir)).rejects.toThrow(/BENCH_COMPARE_BUNDLE: no entry module/);
     await expect(prepareCompareBundle(badModulePath)).rejects.toThrow(
-      /BENCH_COMPARE_BUNDLE: .* must export \{ loadModel, PixiRig \}/,
+      /BENCH_COMPARE_BUNDLE: .* must export \{ loadModel, PixiRig \} or an @rig-c\/play package\/bundle/,
+    );
+    await expect(prepareCompareBundle('packages/pixi')).rejects.toThrow(
+      /BENCH_COMPARE_BUNDLE: "packages\/pixi" is an @rig-c\/pixi package \(exports PixiRig without loadModel\) and is not a comparison input; pass an @rig-c\/play package\/bundle or a module exporting \{ loadModel, PixiRig \}/,
+    );
+    await expect(prepareCompareBundle('packages/pixi/src/index.ts')).rejects.toThrow(
+      /BENCH_COMPARE_BUNDLE: "packages\/pixi\/src\/index\.ts" is an @rig-c\/pixi package \(exports PixiRig without loadModel\) and is not a comparison input; pass an @rig-c\/play package\/bundle or a module exporting \{ loadModel, PixiRig \}/,
     );
   } finally {
     rmSync(badDir, { recursive: true, force: true });
