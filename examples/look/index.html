@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@rig-c/pixi — examples/look</title>
+    <title>rig-c adapters — examples/look</title>
     <style>
       :root {
         color-scheme: dark;
@@ -63,6 +63,9 @@
     </style>
   </head>
   <body>
+    <nav style="position:fixed;top:16px;left:16px;z-index:1" aria-label="Renderer">
+      <a href="?host=pixi">PixiJS</a> · <a href="?host=phaser">Phaser</a> · <a href="?host=three">Three.js</a>
+    </nav>
     <div id="look-stage"></div>
     <div id="hud">Loading look rig…</div>
     <script type="module" src="./main.ts"></script>

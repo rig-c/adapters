@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 import { expect, test } from '@playwright/test';
-import type { LookDemoApi } from '../main.ts';
+import type { LookDemoApi, PoseInspection } from '../main.ts';
 
 declare global {
   interface Window {
@@ -442,6 +442,10 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
       'examples/look/index.html',
       'examples/look/look.ts',
       'examples/look/main.ts',
+      'examples/look/hosts.ts',
+      'examples/look/pointer-dials.ts',
+      'examples/look/README.md',
+      'examples/look/tests/pointer-dials.test.ts',
       'examples/look/look-corners.webp',
       'examples/look/look-corner-bl.png',
       'examples/look/look-corner-br.png',
@@ -492,3 +496,85 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
     expect(violations).toEqual([]);
   });
 });
+
+
+function expectVisibleHost(pixels: number): void {
+  expect(pixels).toBeGreaterThan(20_000);
+}
+
+function expectHostMovement(before: PoseInspection, after: PoseInspection): void {
+  expect(after.bones.nose.x).toBeGreaterThan(before.bones.nose.x);
+  expect(after.bones.nose.y).toBeGreaterThan(before.bones.nose.y);
+}
+
+for (const host of ['pixi', 'phaser', 'three'] as const) {
+  test(`Issue #52 — ${host} renders the shared pointer helper and responds to real pointer input`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${LOOK_URL}&host=${host}`);
+    await page.waitForFunction(() => window.__lookDemo?.ready || window.__lookDemoError);
+    expect(await page.evaluate(() => window.__lookDemoError ?? null)).toBeNull();
+    const canvas = page.locator('#look-stage canvas');
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.1);
+    const report = await page.evaluate(() => {
+      const api = window.__lookDemo!;
+      const before = api.inspectPose(['nose', 'iris_r', 'eye_r']);
+      const first = api.step(1 / 60);
+      const settled = api.stepFrames(17, 1 / 60);
+      const after = api.inspectPose(['nose', 'iris_r', 'eye_r']);
+      const pixels = api.countNonEmptyPixels();
+      return { host: api.host, before, after, first, settled, pixels };
+    });
+    console.log('[look:52:host]', JSON.stringify(report));
+    expect(report.host).toBe(host);
+    expectVisibleHost(report.pixels);
+    expect(report.first.fx).toBeCloseTo(0.8, 3);
+    expect(report.first.fy).toBeCloseTo(0.8, 3);
+    expect(report.first.eyeX).toBeCloseTo(0.8, 3);
+    expect(report.first.eyeY).toBeCloseTo(0.8, 3);
+    expect(Math.abs(report.first.headYaw)).toBeLessThan(6);
+    expect(Math.abs(report.settled.headYaw - 12)).toBeLessThanOrEqual(12 * 0.02);
+    expectHostMovement(report.before, report.after);
+
+    // Runtime mutants use this host's real framebuffer and the real model reader.
+    const blankPixels = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('#look-stage canvas')!;
+      const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+      if (!gl) throw new Error('Look framebuffer control requires WebGL');
+      const clear = gl.getParameter(gl.COLOR_CLEAR_VALUE) as Float32Array;
+      const mask = gl.getParameter(gl.COLOR_WRITEMASK) as boolean[];
+      const scissor = gl.isEnabled(gl.SCISSOR_TEST);
+      gl.disable(gl.SCISSOR_TEST);
+      gl.colorMask(true, true, true, true);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const count = window.__lookDemo!.countNonEmptyPixels();
+      gl.clearColor(clear[0], clear[1], clear[2], clear[3]);
+      gl.colorMask(mask[0], mask[1], mask[2], mask[3]);
+      if (scissor) gl.enable(gl.SCISSOR_TEST);
+      return count;
+    });
+    expect(blankPixels).toBe(0);
+    expect(() => expectVisibleHost(blankPixels)).toThrow();
+
+    const noSliders = JSON.parse(readFileSync(join(process.cwd(), 'examples/look/rig/skeleton.model.json'), 'utf8')) as { constraints: Array<{ kind: string }> };
+    noSliders.constraints = noSliders.constraints.filter(c => c.kind !== 'slider');
+    await page.route('**/examples/look/rig/no-sliders.model.json', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(noSliders) }));
+    const staticReport = await page.evaluate(async () => {
+      const api = window.__lookDemo!;
+      const refusal = await api.loadRig('/examples/look/rig/no-sliders.model.json');
+      const before = api.inspectPose(['nose']);
+      api.setPointerNormalized(0.8, 0.8);
+      api.stepFrames(18, 1 / 60);
+      return { refusal, before, after: api.inspectPose(['nose']) };
+    });
+    expect(staticReport.refusal.isStaticFallback).toBe(true);
+    expect(staticReport.refusal.missingAxis).toBe('yaw');
+    expect(() => expectHostMovement(staticReport.before, staticReport.after)).toThrow();
+    console.log('[look:52:mutants]', JSON.stringify({ host, blankPixels, staticNoseDeltaX: staticReport.after.bones.nose.x - staticReport.before.bones.nose.x, staticNoseDeltaY: staticReport.after.bones.nose.y - staticReport.before.bones.nose.y, visibilityRejected: true, movementRejected: true }));
+    expect(errors).toEqual([]);
+    await page.evaluate(() => window.__lookDemo!.dispose());
+    expect(await page.evaluate(() => window.__lookDemo!.ready)).toBe(false);
+  });
+}

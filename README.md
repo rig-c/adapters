@@ -69,13 +69,15 @@ sharing reference-counted GPU page textures across instances over one
 available when you own the player.
 
 `bun run example:look` opens [`examples/look/`](examples/look/index.html), a
-1080p pointer-follow page on `@rig-c/pixi`: eyes follow the pointer at once,
-head yaw/pitch/roll and body follow on a critically-damped spring, `idle` runs
-underneath for blink and breath, and hair physics react to head angular
-velocity. The page never hardcodes a degree — it reads the rig's own declared
-slider ranges (`yaw`, `pitch`, `roll`, `body`, `eye_x`, `eye_y`) from
-`skeleton.model.json`, and renders static with one warning if a rig without a
-`yaw` dial is loaded.
+1080p pointer-follow page with PixiJS, Phaser and Three.js host links. Its
+[reusable example-side helper](examples/look/README.md) normalizes pointers,
+reads dial ranges from compiled slider constraints and applies the exact
+critically damped omega 20 spring. Callers supply dial bone names; missing or
+unsupported sliders refuse by name. Eyes follow immediately, head/body follow
+on the spring, roll retains its existing mapping, and idle blink/breath plus
+the calibrated global hair impulse remain in the example. The public slider
+fixture is used today; refresh against the first released public depth rig is
+pending that released input.
 
 `bun install`, `bun run dev` runs the root demo; the [Three.js demo](three-demo.html)
 provides orthographic and perspective scenes. `bun run verify` builds every
