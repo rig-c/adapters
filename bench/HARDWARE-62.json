@@ -1,0 +1,3952 @@
+{
+  "protocol": "hardware-same-frame-v1",
+  "issue": "https://github.com/rig-c/adapters/issues/62",
+  "status": "Both hardware captures complete; integration pending",
+  "baseHead": "ac7ef5510818357329eb998f0fc34fb1f118004f",
+  "command": [
+    "bun",
+    "scripts/hardware-bench-mac.mjs"
+  ],
+  "exitCode": 0,
+  "localExclusiveInputSha256": "378712577a0ac275192d07fac887026fbb7ef81d232a5ec0b7aeb76fb3592401",
+  "window": {
+    "grant": "No other measurement session; desktop application panes idle",
+    "loadBefore": [
+      3.51,
+      3.07,
+      2.76
+    ],
+    "loadAfter": [
+      4.4,
+      3.4,
+      2.9
+    ],
+    "cpuIdlePercentBefore": 70.73,
+    "cpuIdlePercentAfter": 68.22,
+    "swapoutsBefore": 10169485,
+    "swapoutsAfter": 10169485,
+    "os": "macOS 26.6.1 (25G76), Darwin 25.6.0",
+    "driver": "ANGLE Metal; Apple OS-integrated driver, no separate version exposed",
+    "gpu": "Apple M4, 10 GPU cores"
+  },
+  "mac": {
+    "machine": {
+      "vendor": "Google Inc. (Apple)",
+      "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)",
+      "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+    },
+    "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+    "clockMinStepMs": [
+      0.004999876022338867,
+      0.004999876022338867,
+      0.004999876022338867,
+      0.004999876022338867
+    ],
+    "crossOriginIsolated": true,
+    "input": {
+      "protocol": "hardware-same-frame-v1",
+      "sourceSha256": "498d68ddb6c8d0397bd271adae8d54d9afe15e105097e324ea72550116b0010d",
+      "dependencies": {
+        "old": {
+          "play": "1.17.1",
+          "core": "2.70.0",
+          "declaredBuildCore": "2.67.0",
+          "playSha256": "d714e3d1254a8fd78ddb57946543a1a92a8c7b6ff9af8526d6d4ca1fce71032e",
+          "embeddedCoreSources": [
+            {
+              "source": "src/core/world.ts",
+              "sha256": "c0b2d62dd20f210a67bf769de85cccc56f6993dc4e35733022eec3e94cce1f64"
+            },
+            {
+              "source": "src/core/skins.ts",
+              "sha256": "3017b68c0d3295b006cf83e6137a460a6b6460378324a39428cdc031b11518f0"
+            },
+            {
+              "source": "src/core/deform.ts",
+              "sha256": "7bf4842f9f79e1b33a4bf121f6d86a3898a4e7261d5cf1979107188c4be299be"
+            },
+            {
+              "source": "src/core/draw_order.ts",
+              "sha256": "af4c8c90ce0f74fec80aa998f8b508230ebce7980607559cf2f429ffdea3c034"
+            },
+            {
+              "source": "src/core/events.ts",
+              "sha256": "b177f7d21f10fa6a1df4362ef4e15c78b2f578bf95f7e85a8b968e2f01e70315"
+            },
+            {
+              "source": "src/core/clipping.ts",
+              "sha256": "f35dbb92cf0d1e2cf13a749ffeba55b148eb84dd8e57b2f3bd2d3aea83667230"
+            },
+            {
+              "source": "src/core/vertices.ts",
+              "sha256": "0097e79d4eae191a6de5cc3703034fd3300f8d296de850227f43cdebb4e0fc38"
+            },
+            {
+              "source": "src/core/constraints_path.ts",
+              "sha256": "48694bc52feef61a4171bd70483cb4e6438215cd851918a0362470e5d0fdd812"
+            },
+            {
+              "source": "src/core/constraints_physics.ts",
+              "sha256": "a2ca9d8b4aca0ee9814daffcb3700cbc6c68e5555d070cb1986c4a06386d2f98"
+            },
+            {
+              "source": "src/core/constraints_slider.ts",
+              "sha256": "f7ce3a11bdeaea5e3cf178cef97151bd013884658840ae76ff21a0fe8ccba33f"
+            },
+            {
+              "source": "src/core/constraints.ts",
+              "sha256": "c544ae4eab133e36632334c2a4d2bf3507245b357f901446e12f26a27dc0082c"
+            },
+            {
+              "source": "src/core/animation.ts",
+              "sha256": "c3f47b31cf3775061617ce63bae9f558de298b2ce9daf1b25fe3f864e806472e"
+            },
+            {
+              "source": "src/core/index.ts",
+              "sha256": "615693a901d1f44c447527cd5ef3e5ce2f456c166fa75f2bbf4291637100908f"
+            },
+            {
+              "source": "src/core/raw.ts",
+              "sha256": "a49b5a0850bd5623a8dab8f5935da1a5829c7e848900c4fdd3471436a9572a4c"
+            },
+            {
+              "source": "src/core/physics_parameters.ts",
+              "sha256": "e0d60f28e525ab98092f5a52fd5680e2bc8d57e86e32938f3f5e2499022ff695"
+            },
+            {
+              "source": "src/core/track.ts",
+              "sha256": "5734c5f94dfe4f2addb7975ec4d9848a54da92bb0b6681fa35eca0551fbc61d3"
+            },
+            {
+              "source": "src/core/tracks.ts",
+              "sha256": "d219dce430d05b53823ff77b15484f6078024efea0937adeecf0a7b64b9104e3"
+            },
+            {
+              "source": "src/core/uvs.ts",
+              "sha256": "fa4a30385b7dac6d3c135c62fbf24b1f4cb24f666a36ed6ae756ad290f8a37f3"
+            }
+          ]
+        },
+        "new": {
+          "play": "1.18.0",
+          "core": "2.72.0",
+          "declaredBuildCore": "2.72.0",
+          "playSha256": "3d733acf04bdc335e2bbf2f175f0d9b95ffa00ead87f2ae6f890977c1f2bc903",
+          "embeddedCoreSources": [
+            {
+              "source": "src/core/world.ts",
+              "sha256": "c0b2d62dd20f210a67bf769de85cccc56f6993dc4e35733022eec3e94cce1f64"
+            },
+            {
+              "source": "src/core/skins.ts",
+              "sha256": "3017b68c0d3295b006cf83e6137a460a6b6460378324a39428cdc031b11518f0"
+            },
+            {
+              "source": "src/core/deform.ts",
+              "sha256": "7bf4842f9f79e1b33a4bf121f6d86a3898a4e7261d5cf1979107188c4be299be"
+            },
+            {
+              "source": "src/core/draw_order.ts",
+              "sha256": "af4c8c90ce0f74fec80aa998f8b508230ebce7980607559cf2f429ffdea3c034"
+            },
+            {
+              "source": "src/core/events.ts",
+              "sha256": "1acf1d6bfcd3e7ac7f10ec09a55db5d89cfd13dfa246a421ea07a7a6994d163d"
+            },
+            {
+              "source": "src/core/clipping.ts",
+              "sha256": "f35dbb92cf0d1e2cf13a749ffeba55b148eb84dd8e57b2f3bd2d3aea83667230"
+            },
+            {
+              "source": "src/core/vertices.ts",
+              "sha256": "47e419d561512cac4f75ccb6feebeeeb690c15778d4754f1d9b0e9ed5ad429a9"
+            },
+            {
+              "source": "src/core/constraints_path.ts",
+              "sha256": "48694bc52feef61a4171bd70483cb4e6438215cd851918a0362470e5d0fdd812"
+            },
+            {
+              "source": "src/core/constraints_physics.ts",
+              "sha256": "a2ca9d8b4aca0ee9814daffcb3700cbc6c68e5555d070cb1986c4a06386d2f98"
+            },
+            {
+              "source": "src/core/constraints_slider.ts",
+              "sha256": "f7ce3a11bdeaea5e3cf178cef97151bd013884658840ae76ff21a0fe8ccba33f"
+            },
+            {
+              "source": "src/core/constraints.ts",
+              "sha256": "c544ae4eab133e36632334c2a4d2bf3507245b357f901446e12f26a27dc0082c"
+            },
+            {
+              "source": "src/core/animation.ts",
+              "sha256": "ebf1f8d7b814387b32ce14fa715a158f4c9bf01856afcadaf8dc71e81a5bd6d9"
+            },
+            {
+              "source": "src/core/index.ts",
+              "sha256": "e6e87a238e3c603e9f00c3820ededa74d02ec83843fa8c922a97639fe4acdf46"
+            },
+            {
+              "source": "src/core/raw.ts",
+              "sha256": "a8898e5135373c3bf6c06022e5f910cc1d2cac5188dd4c284be2226a888f31fe"
+            },
+            {
+              "source": "src/core/physics_parameters.ts",
+              "sha256": "e0d60f28e525ab98092f5a52fd5680e2bc8d57e86e32938f3f5e2499022ff695"
+            },
+            {
+              "source": "src/core/track.ts",
+              "sha256": "5734c5f94dfe4f2addb7975ec4d9848a54da92bb0b6681fa35eca0551fbc61d3"
+            },
+            {
+              "source": "src/core/tracks.ts",
+              "sha256": "fbe3ffd203d33a7f47836a7cf23c03cd79244dc400e7ca9208ad772564044647"
+            },
+            {
+              "source": "src/core/uvs.ts",
+              "sha256": "fa4a30385b7dac6d3c135c62fbf24b1f4cb24f666a36ed6ae756ad290f8a37f3"
+            },
+            {
+              "source": "src/runtime/curves.ts",
+              "sha256": "a616463fc8aeb6e126188c1e0f9a70a5292131b275f1b9bb6d634681ed0e17c7"
+            },
+            {
+              "source": "src/runtime/model.ts",
+              "sha256": "b26e349405623088dc14e3beb85d3ffebd5e8ca473bc991825d7b2ffddae3509"
+            },
+            {
+              "source": "src/runtime/pose.ts",
+              "sha256": "520c234dabb2d01719e1979b1b8669e279e54f223737ccb83a048b34c88e09f5"
+            }
+          ]
+        }
+      },
+      "assets": {
+        "rigcTag": "v2.64.1",
+        "spineRuntimesRef": "38ddb1a0652c2e3473e8487ebd88b4b291ad9a7e",
+        "skeletons": {
+          "spineboy": {
+            "animation": "walk",
+            "files": {
+              "spineJson": {
+                "bytes": 255660,
+                "gzipBytes": 58872,
+                "sha256": "24ccffc13e334e721dfd427ee2b8aea05c25b59167b5fb0bb0f9685e11d2a7d3"
+              },
+              "spineAtlas": {
+                "bytes": 1552,
+                "gzipBytes": 629,
+                "sha256": "fbd452640df513d637e0a34d21c1d3ea4edb27f57bd1856ffd5530b16ee83d00"
+              },
+              "atlasPng": {
+                "bytes": 242791,
+                "gzipBytes": 242628,
+                "sha256": "ab874448a224f8a92188e133735062c86e5f93eb7286b0fc37c5d39864e6569f"
+              },
+              "license": {
+                "bytes": 313,
+                "gzipBytes": 228,
+                "sha256": "08074c5f8c5f072626a0830250304fe3063d9d49f8f9b039e063bb238f2b993b"
+              },
+              "ingestedRig": {
+                "bytes": 157020,
+                "gzipBytes": 17903,
+                "sha256": "189036b5f38b33e4732b738f89730d6556cd120a259f875f4aaf8a866d3d32f3"
+              },
+              "ingestedMotion": {
+                "bytes": 485298,
+                "gzipBytes": 48458,
+                "sha256": "59797a1083d31ce14332a70889c562e876c5c191a5ae2423090f47cf723eb210"
+              },
+              "builtModel": {
+                "bytes": 748024,
+                "gzipBytes": 71576,
+                "sha256": "06bb683060a3e38866718885b78d295c2aa246739ff79efddb22bd7332dd8919"
+              },
+              "builtSpineJson": {
+                "bytes": 533481,
+                "gzipBytes": 64417,
+                "sha256": "75b7b27f074290082fdb271d8d314d4937b21449defc6ac0fc11aaef8bb2e7dc"
+              },
+              "builtSpineAtlas": {
+                "bytes": 1552,
+                "gzipBytes": 629,
+                "sha256": "fbd452640df513d637e0a34d21c1d3ea4edb27f57bd1856ffd5530b16ee83d00"
+              }
+            }
+          },
+          "raptor": {
+            "animation": "walk",
+            "files": {
+              "spineJson": {
+                "bytes": 293164,
+                "gzipBytes": 72924,
+                "sha256": "2ba9fe06007bc7b44d412bdb5722b1cd8b5fbcd0f7a263ae1aa957a555e9742a"
+              },
+              "spineAtlas": {
+                "bytes": 1604,
+                "gzipBytes": 648,
+                "sha256": "fb6e8532cb7665542b54ab661d0cadffe0171fcfe6b192595cd6ab622b08d8e6"
+              },
+              "atlasPng": {
+                "bytes": 418144,
+                "gzipBytes": 417299,
+                "sha256": "c2fcb6ac6c363f5b37f622feb727aed64fbd0205897a7ba8b6b45f8a091ab125"
+              },
+              "license": {
+                "bytes": 313,
+                "gzipBytes": 228,
+                "sha256": "08074c5f8c5f072626a0830250304fe3063d9d49f8f9b039e063bb238f2b993b"
+              },
+              "ingestedRig": {
+                "bytes": 305015,
+                "gzipBytes": 31974,
+                "sha256": "dba04cba8a141ff48f6b687c6d910cffc9e8d99e229fb4a5a8cc7d0fab4915ff"
+              },
+              "ingestedMotion": {
+                "bytes": 503148,
+                "gzipBytes": 51130,
+                "sha256": "85f7eb22187872bbd6b9af7e6bf544f77af032e830efd9104f0bf2f951c38457"
+              },
+              "builtModel": {
+                "bytes": 917106,
+                "gzipBytes": 88710,
+                "sha256": "4b02193c4100e1da392929b409f4b12806c50d79aca7d8bc3738ad83a5aa18fc"
+              },
+              "builtSpineJson": {
+                "bytes": 644232,
+                "gzipBytes": 79796,
+                "sha256": "aff5fbf52febd38e84e5d4fed26c4a8fd33f8a12bd6abc0630be8c28b12a5da7"
+              },
+              "builtSpineAtlas": {
+                "bytes": 1604,
+                "gzipBytes": 648,
+                "sha256": "fb6e8532cb7665542b54ab661d0cadffe0171fcfe6b192595cd6ab622b08d8e6"
+              }
+            }
+          }
+        }
+      },
+      "bundles": {
+        "old": "29b45d47de764393487ee70adbe3aa55bc05ade7fc5b105608d65b6218661350",
+        "new": "44582b98b6355a6a33687524f165f35d4f8901003bb4e924f090f402400b330f",
+        "main": "a3b96874eb73f74fa959599ffe8d534bb39b969fdfc0afcf384c5556120cead7"
+      }
+    },
+    "rawSha256": {
+      "AA1": "c10f23ad82fed679ba64da2dee2a9963f64428fa2ebcf8e400c588eafc76b4bc",
+      "AA2": "99fde9a5c93dd7a6375730b0bd3cc27d0c2e0f08d7ed08832aa27c16f3bb3c58",
+      "AB1": "205ebc168e18d859d08e516deec65d49a6b6863b6e5029a5aa2114b1c9100468",
+      "AB2": "9afaed19e465e6e6b4292f6d542fe81fc63e089b229f40121ec567fae4216018"
+    },
+    "checks": {
+      "frames": 2880,
+      "halves": 96,
+      "aaBeforeAb": true
+    },
+    "rows": [
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "poseMs",
+        "envelopeMs": 0.029999971389770508,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.10500001907348633,
+              "p50Ms": 0.11500000953674316,
+              "p95Ms": 0.13499999046325684,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.09999990463256836,
+              "p50Ms": 0.11500000953674316,
+              "p95Ms": 0.13500022888183594,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.02500009536743164,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.015000104904174805,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.10500001907348633,
+              "p50Ms": 0.11999988555908203,
+              "p95Ms": 0.14499998092651367,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.09999990463256836,
+              "p50Ms": 0.11500000953674316,
+              "p95Ms": 0.13499999046325684,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.029999971389770508,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.014999866485595703,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.09999990463256836,
+              "p50Ms": 0.10500001907348633,
+              "p95Ms": 0.125,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.039999961853027344,
+              "p50Ms": 0.06499981880187988,
+              "p95Ms": 0.08500003814697266,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.08000016212463379,
+              "p50Ms": -0.05000019073486328,
+              "p95Ms": -0.02499985694885254,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.09999990463256836,
+              "p50Ms": 0.1099998950958252,
+              "p95Ms": 0.13499999046325684,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.03500008583068848,
+              "p50Ms": 0.06500005722045898,
+              "p95Ms": 0.09500002861022949,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.08000016212463379,
+              "p50Ms": -0.04999995231628418,
+              "p95Ms": -0.02500009536743164,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.05000019073486328,
+          -0.04999995231628418
+        ],
+        "verdict": "improvement outside A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "submitMs",
+        "envelopeMs": 0.015000104904174805,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.015000104904174805,
+              "p50Ms": 0.019999980926513672,
+              "p95Ms": 0.029999971389770508,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.009999990463256836,
+              "p50Ms": 0.015000104904174805,
+              "p95Ms": 0.02500009536743164,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.015000104904174805,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.004999876022338867,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.014999866485595703,
+              "p50Ms": 0.019999980926513672,
+              "p95Ms": 0.029999971389770508,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.009999990463256836,
+              "p50Ms": 0.015000104904174805,
+              "p95Ms": 0.02500009536743164,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.015000104904174805,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.004999876022338867,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.014999866485595703,
+              "p50Ms": 0.019999980926513672,
+              "p95Ms": 0.02500009536743164,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.014999866485595703,
+              "p50Ms": 0.019999980926513672,
+              "p95Ms": 0.029999971389770508,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.009999990463256836,
+              "p50Ms": 0,
+              "p95Ms": 0.009999990463256836,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.014999866485595703,
+              "p50Ms": 0.019999980926513672,
+              "p95Ms": 0.02500009536743164,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.014999866485595703,
+              "p50Ms": 0.019999980926513672,
+              "p95Ms": 0.029999971389770508,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.009999990463256836,
+              "p50Ms": 0,
+              "p95Ms": 0.009999990463256836,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0,
+          0
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "cpuMs",
+        "envelopeMs": 0.03500008583068848,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.125,
+              "p50Ms": 0.1399998664855957,
+              "p95Ms": 0.16499996185302734,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.11500000953674316,
+              "p50Ms": 0.12999987602233887,
+              "p95Ms": 0.1550002098083496,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.03500008583068848,
+              "p50Ms": -0.009999990463256836,
+              "p95Ms": 0.009999752044677734,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.125,
+              "p50Ms": 0.1400001049041748,
+              "p95Ms": 0.17499995231628418,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.11500000953674316,
+              "p50Ms": 0.13000011444091797,
+              "p95Ms": 0.1549999713897705,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.03500008583068848,
+              "p50Ms": -0.014999866485595703,
+              "p95Ms": 0.009999990463256836,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.11500000953674316,
+              "p50Ms": 0.125,
+              "p95Ms": 0.15999984741210938,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.05499982833862305,
+              "p50Ms": 0.08000016212463379,
+              "p95Ms": 0.1099998950958252,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.08500003814697266,
+              "p50Ms": -0.05499982833862305,
+              "p95Ms": -0.015000104904174805,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.11500000953674316,
+              "p50Ms": 0.13000011444091797,
+              "p95Ms": 0.16000008583068848,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.05499982833862305,
+              "p50Ms": 0.08499979972839355,
+              "p95Ms": 0.125,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.08000016212463379,
+              "p50Ms": -0.05000019073486328,
+              "p95Ms": -0.019999980926513672,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.05499982833862305,
+          -0.05000019073486328
+        ],
+        "verdict": "improvement outside A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "gpuMs",
+        "envelopeMs": 0.145292,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.060333,
+              "p50Ms": 0.132,
+              "p95Ms": 0.298833,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.051458,
+              "p50Ms": 0.134333,
+              "p95Ms": 0.288166,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.13137500000000002,
+              "p50Ms": 0.0018749999999999878,
+              "p95Ms": 0.145292,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.030249,
+              "p50Ms": 0.049833,
+              "p95Ms": 0.355041,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.035749,
+              "p50Ms": 0.051375,
+              "p95Ms": 0.367,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.099167,
+              "p50Ms": 0.007084,
+              "p95Ms": 0.09066600000000001,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.038333,
+              "p50Ms": 0.165,
+              "p95Ms": 0.403624,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.036708,
+              "p50Ms": 0.16225,
+              "p95Ms": 0.468,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.141125,
+              "p50Ms": -0.002917000000000003,
+              "p95Ms": 0.135417,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.027374,
+              "p50Ms": 0.105708,
+              "p95Ms": 0.283374,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.031333,
+              "p50Ms": 0.108374,
+              "p95Ms": 0.256625,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.13874999999999998,
+              "p50Ms": 0.002833000000000002,
+              "p95Ms": 0.124917,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.002917000000000003,
+          0.002833000000000002
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "poseMs",
+        "envelopeMs": 1.5999999046325684,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 6.644999980926514,
+              "p50Ms": 7.454999923706055,
+              "p95Ms": 8.360000133514404,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 6.355000019073486,
+              "p50Ms": 7.2200000286102295,
+              "p95Ms": 7.870000123977661,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.5999999046325684,
+              "p50Ms": -0.3250000476837158,
+              "p95Ms": 0.8000001907348633,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 6.7200000286102295,
+              "p50Ms": 7.5299999713897705,
+              "p95Ms": 8.424999952316284,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 6.349999904632568,
+              "p50Ms": 7.190000057220459,
+              "p95Ms": 8.164999961853027,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.5049998760223389,
+              "p50Ms": -0.375,
+              "p95Ms": 0.7749998569488525,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 6.625,
+              "p50Ms": 7.434999942779541,
+              "p95Ms": 8.150000095367432,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 4.384999990463257,
+              "p50Ms": 4.884999990463257,
+              "p95Ms": 5.4649999141693115,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -3.430000066757202,
+              "p50Ms": -2.5850000381469727,
+              "p95Ms": -1.2300000190734863,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 7.259999990463257,
+              "p50Ms": 8.339999914169312,
+              "p95Ms": 9.389999866485596,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 4.925000190734863,
+              "p50Ms": 5.359999895095825,
+              "p95Ms": 6.420000076293945,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -4.105000019073486,
+              "p50Ms": -2.940000057220459,
+              "p95Ms": -1.695000171661377,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -2.5850000381469727,
+          -2.940000057220459
+        ],
+        "verdict": "improvement outside A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "submitMs",
+        "envelopeMs": 0.37000012397766113,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 1.059999942779541,
+              "p50Ms": 1.2949998378753662,
+              "p95Ms": 1.5199999809265137,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.1499998569488525,
+              "p50Ms": 1.3050000667572021,
+              "p95Ms": 1.4749999046325684,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.25499987602233887,
+              "p50Ms": -0.009999990463256836,
+              "p95Ms": 0.25500011444091797,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 1.065000057220459,
+              "p50Ms": 1.2699999809265137,
+              "p95Ms": 1.5199999809265137,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.0349998474121094,
+              "p50Ms": 1.2249999046325684,
+              "p95Ms": 1.4100000858306885,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.37000012397766113,
+              "p50Ms": -0.040000200271606445,
+              "p95Ms": 0.2200000286102295,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 1.0550000667572021,
+              "p50Ms": 1.2599999904632568,
+              "p95Ms": 1.3900001049041748,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.0750000476837158,
+              "p50Ms": 1.3300001621246338,
+              "p95Ms": 1.554999828338623,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.23999977111816406,
+              "p50Ms": 0.07000017166137695,
+              "p95Ms": 0.3600001335144043,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 1.2599999904632568,
+              "p50Ms": 1.4849998950958252,
+              "p95Ms": 1.7350001335144043,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.2350001335144043,
+              "p50Ms": 1.5449998378753662,
+              "p95Ms": 2.0950000286102295,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.3399999141693115,
+              "p50Ms": 0.06500005722045898,
+              "p95Ms": 0.5499999523162842,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.07000017166137695,
+          0.06500005722045898
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "cpuMs",
+        "envelopeMs": 1.7050001621246338,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 7.819999933242798,
+              "p50Ms": 8.730000019073486,
+              "p95Ms": 9.800000190734863,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 7.56000018119812,
+              "p50Ms": 8.505000114440918,
+              "p95Ms": 9.21500015258789,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.7050001621246338,
+              "p50Ms": -0.2999999523162842,
+              "p95Ms": 0.9549999237060547,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 7.8450000286102295,
+              "p50Ms": 8.759999990463257,
+              "p95Ms": 9.930000066757202,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 7.384999990463257,
+              "p50Ms": 8.389999866485596,
+              "p95Ms": 9.420000076293945,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.6700000762939453,
+              "p50Ms": -0.4349997043609619,
+              "p95Ms": 0.8850002288818359,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 7.805000066757202,
+              "p50Ms": 8.634999990463257,
+              "p95Ms": 9.460000038146973,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 5.4700000286102295,
+              "p50Ms": 6.230000019073486,
+              "p95Ms": 7.170000076293945,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -3.5500001907348633,
+              "p50Ms": -2.5349998474121094,
+              "p95Ms": -1.0299999713897705,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 8.585000038146973,
+              "p50Ms": 9.799999952316284,
+              "p95Ms": 11.085000038146973,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 6.2200000286102295,
+              "p50Ms": 6.944999933242798,
+              "p95Ms": 8.125,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -4.134999990463257,
+              "p50Ms": -2.9700002670288086,
+              "p95Ms": -1.3700001239776611,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -2.5349998474121094,
+          -2.9700002670288086
+        ],
+        "verdict": "improvement outside A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "gpuMs",
+        "envelopeMs": 0.504334,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.365999,
+              "p50Ms": 0.52775,
+              "p95Ms": 0.549125,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.364999,
+              "p50Ms": 0.529875,
+              "p95Ms": 0.66925,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.17658399999999996,
+              "p50Ms": 0.16187600000000002,
+              "p95Ms": 0.294084,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.353499,
+              "p50Ms": 0.382916,
+              "p95Ms": 1.034625,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.355166,
+              "p50Ms": 0.533041,
+              "p95Ms": 0.962,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.504334,
+              "p50Ms": 0.01375000000000004,
+              "p95Ms": 0.41416699999999995,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.365958,
+              "p50Ms": 0.435416,
+              "p95Ms": 0.54825,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.364749,
+              "p50Ms": 0.446083,
+              "p95Ms": 0.552583,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.175583,
+              "p50Ms": 0.005750000000000033,
+              "p95Ms": 0.17808300000000005,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.352791,
+              "p50Ms": 0.376624,
+              "p95Ms": 0.552874,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.357833,
+              "p50Ms": 0.527541,
+              "p95Ms": 0.555041,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.18020799999999998,
+              "p50Ms": 0.010875000000000024,
+              "p95Ms": 0.17858300000000005,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.005750000000000033,
+          0.010875000000000024
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "poseMs",
+        "envelopeMs": 0.03000020980834961,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.13499999046325684,
+              "p50Ms": 0.14499998092651367,
+              "p95Ms": 0.19000005722045898,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.125,
+              "p50Ms": 0.1399998664855957,
+              "p95Ms": 0.18499994277954102,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.029999971389770508,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.009999990463256836,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.13499999046325684,
+              "p50Ms": 0.15000009536743164,
+              "p95Ms": 0.1700000762939453,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.12999987602233887,
+              "p50Ms": 0.14499998092651367,
+              "p95Ms": 0.16499996185302734,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.03000020980834961,
+              "p50Ms": -0.004999876022338867,
+              "p95Ms": 0.015000104904174805,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.1400001049041748,
+              "p50Ms": 0.16000008583068848,
+              "p95Ms": 0.2049999237060547,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.09000015258789062,
+              "p50Ms": 0.11500000953674316,
+              "p95Ms": 0.15000009536743164,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.07500028610229492,
+              "p50Ms": -0.04999971389770508,
+              "p95Ms": -0.019999980926513672,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.14999985694885254,
+              "p50Ms": 0.16499996185302734,
+              "p95Ms": 0.26999998092651367,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.09999990463256836,
+              "p50Ms": 0.125,
+              "p95Ms": 0.20000004768371582,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.10499978065490723,
+              "p50Ms": -0.05499982833862305,
+              "p95Ms": -0.019999980926513672,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.04999971389770508,
+          -0.05499982833862305
+        ],
+        "verdict": "improvement outside A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "submitMs",
+        "envelopeMs": 0.015000104904174805,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.034999847412109375,
+              "p50Ms": 0.05500006675720215,
+              "p95Ms": 0.07500004768371582,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.03500008583068848,
+              "p50Ms": 0.059999942779541016,
+              "p95Ms": 0.07500004768371582,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.015000104904174805,
+              "p50Ms": 2.384185791015625e-07,
+              "p95Ms": 0.014999866485595703,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.034999847412109375,
+              "p50Ms": 0.05500006675720215,
+              "p95Ms": 0.06500005722045898,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.034999847412109375,
+              "p50Ms": 0.05499982833862305,
+              "p95Ms": 0.06999993324279785,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.014999866485595703,
+              "p50Ms": 0,
+              "p95Ms": 0.010000228881835938,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.039999961853027344,
+              "p50Ms": 0.05500006675720215,
+              "p95Ms": 0.07500004768371582,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.04499983787536621,
+              "p50Ms": 0.059999942779541016,
+              "p95Ms": 0.08000016212463379,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.009999990463256836,
+              "p50Ms": 0.004999876022338867,
+              "p95Ms": 0.015000104904174805,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.039999961853027344,
+              "p50Ms": 0.059999942779541016,
+              "p95Ms": 0.10000014305114746,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.04499983787536621,
+              "p50Ms": 0.06499981880187988,
+              "p95Ms": 0.10500001907348633,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.019999980926513672,
+              "p50Ms": 0.004999876022338867,
+              "p95Ms": 0.015000104904174805,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.004999876022338867,
+          0.004999876022338867
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "cpuMs",
+        "envelopeMs": 0.03999972343444824,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.1700000762939453,
+              "p50Ms": 0.20000004768371582,
+              "p95Ms": 0.25,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.16499996185302734,
+              "p50Ms": 0.19999980926513672,
+              "p95Ms": 0.25,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.03999972343444824,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.010000228881835938,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.17499995231628418,
+              "p50Ms": 0.20000004768371582,
+              "p95Ms": 0.23000001907348633,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.16499996185302734,
+              "p50Ms": 0.19999980926513672,
+              "p95Ms": 0.2200000286102295,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.034999847412109375,
+              "p50Ms": -0.005000114440917969,
+              "p95Ms": 0.015000343322753906,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.19499993324279785,
+              "p50Ms": 0.21000003814697266,
+              "p95Ms": 0.2799999713897705,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.13499999046325684,
+              "p50Ms": 0.17500019073486328,
+              "p95Ms": 0.2350001335144043,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.08500003814697266,
+              "p50Ms": -0.04499959945678711,
+              "p95Ms": -0.010000228881835938,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.19999980926513672,
+              "p50Ms": 0.22499990463256836,
+              "p95Ms": 0.37000012397766113,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.14499998092651367,
+              "p50Ms": 0.18999981880187988,
+              "p95Ms": 0.30499982833862305,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.10499978065490723,
+              "p50Ms": -0.04999995231628418,
+              "p95Ms": -0.010000228881835938,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.04499959945678711,
+          -0.04999995231628418
+        ],
+        "verdict": "improvement outside A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "gpuMs",
+        "envelopeMs": 0.119125,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.052875,
+              "p50Ms": 0.140916,
+              "p95Ms": 0.509541,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.053625,
+              "p50Ms": 0.140083,
+              "p95Ms": 0.400791,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.063084,
+              "p50Ms": -0.0017489999999999936,
+              "p95Ms": 0.06870800000000002,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.087999,
+              "p50Ms": 0.152499,
+              "p95Ms": 0.57375,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.084375,
+              "p50Ms": 0.151625,
+              "p95Ms": 0.639874,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.06662399999999999,
+              "p50Ms": -0.014624999999999999,
+              "p95Ms": 0.119125,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.0485,
+              "p50Ms": 0.131083,
+              "p95Ms": 0.172875,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.049124,
+              "p50Ms": 0.134166,
+              "p95Ms": 0.176124,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.06854099999999999,
+              "p50Ms": 0.0025420000000000026,
+              "p95Ms": 0.057873999999999995,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.085624,
+              "p50Ms": 0.136625,
+              "p95Ms": 0.173249,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.080083,
+              "p50Ms": 0.137208,
+              "p95Ms": 0.182791,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.067792,
+              "p50Ms": -0.006249999999999992,
+              "p95Ms": 0.072417,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.0025420000000000026,
+          -0.006249999999999992
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "poseMs",
+        "envelopeMs": 1.3249998092651367,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 9.880000114440918,
+              "p50Ms": 10.900000095367432,
+              "p95Ms": 12.050000190734863,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 9.884999990463257,
+              "p50Ms": 11.004999876022339,
+              "p95Ms": 11.929999828338623,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.070000171661377,
+              "p50Ms": 0.07500004768371582,
+              "p95Ms": 1.0999999046325684,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 9.84500002861023,
+              "p50Ms": 10.809999942779541,
+              "p95Ms": 11.65499997138977,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 10.265000104904175,
+              "p50Ms": 11.225000143051147,
+              "p95Ms": 12.015000104904175,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.6200001239776611,
+              "p50Ms": 0.41499996185302734,
+              "p95Ms": 1.3249998092651367,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 9.919999837875366,
+              "p50Ms": 11.009999990463257,
+              "p95Ms": 12.170000076293945,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 9.765000104904175,
+              "p50Ms": 10.200000047683716,
+              "p95Ms": 11.31499981880188,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.5499999523162842,
+              "p50Ms": -0.7949998378753662,
+              "p95Ms": 0.6650002002716064,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 9.97000002861023,
+              "p50Ms": 10.789999961853027,
+              "p95Ms": 13.565000057220459,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 9.799999952316284,
+              "p50Ms": 10,
+              "p95Ms": 11.910000085830688,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.9849998950958252,
+              "p50Ms": -0.7899999618530273,
+              "p95Ms": 0.4099998474121094,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.7949998378753662,
+          -0.7899999618530273
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "submitMs",
+        "envelopeMs": 0.49000000953674316,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 2.634999990463257,
+              "p50Ms": 2.81499981880188,
+              "p95Ms": 3.315000057220459,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.754999876022339,
+              "p50Ms": 2.9200000762939453,
+              "p95Ms": 3.375,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.2650001049041748,
+              "p50Ms": 0.09000015258789062,
+              "p95Ms": 0.49000000953674316,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 2.6600000858306885,
+              "p50Ms": 2.819999933242798,
+              "p95Ms": 3.005000114440918,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.7150001525878906,
+              "p50Ms": 2.865000009536743,
+              "p95Ms": 3.115000009536743,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.21000003814697266,
+              "p50Ms": 0.039999961853027344,
+              "p95Ms": 0.35000014305114746,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 2.5900001525878906,
+              "p50Ms": 2.799999952316284,
+              "p95Ms": 3.2300000190734863,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.740000009536743,
+              "p50Ms": 2.984999895095825,
+              "p95Ms": 3.7699999809265137,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.15000009536743164,
+              "p50Ms": 0.21499991416931152,
+              "p95Ms": 0.7649998664855957,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 2.5250000953674316,
+              "p50Ms": 2.7200000286102295,
+              "p95Ms": 3.4600000381469727,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.635000228881836,
+              "p50Ms": 2.865000009536743,
+              "p95Ms": 3.830000162124634,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.1699998378753662,
+              "p50Ms": 0.18500018119812012,
+              "p95Ms": 1.0449998378753662,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.21499991416931152,
+          0.18500018119812012
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "cpuMs",
+        "envelopeMs": 1.3700001239776611,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 12.664999961853027,
+              "p50Ms": 13.735000133514404,
+              "p95Ms": 15.049999952316284,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 12.789999961853027,
+              "p50Ms": 13.914999961853027,
+              "p95Ms": 15.205000162124634,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.0200002193450928,
+              "p50Ms": 0.17499995231628418,
+              "p95Ms": 1.325000286102295,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 12.65499997138977,
+              "p50Ms": 13.634999990463257,
+              "p95Ms": 14.539999961853027,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 13.285000085830688,
+              "p50Ms": 14.055000066757202,
+              "p95Ms": 14.954999923706055,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.6350002288818359,
+              "p50Ms": 0.47499990463256836,
+              "p95Ms": 1.3700001239776611,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 12.884999990463257,
+              "p50Ms": 13.84500002861023,
+              "p95Ms": 15.130000114440918,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 12.579999923706055,
+              "p50Ms": 13.234999895095825,
+              "p95Ms": 14.545000076293945,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.3899998664855957,
+              "p50Ms": -0.619999885559082,
+              "p95Ms": 1.119999885559082,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 12.944999933242798,
+              "p50Ms": 13.519999980926514,
+              "p95Ms": 16.485000133514404,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 12.46999979019165,
+              "p50Ms": 12.934999942779541,
+              "p95Ms": 15.494999885559082,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.8299996852874756,
+              "p50Ms": -0.6299996376037598,
+              "p95Ms": 0.9500000476837158,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.619999885559082,
+          -0.6299996376037598
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "gpuMs",
+        "envelopeMs": 0.637499,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 1.012875,
+              "p50Ms": 1.602875,
+              "p95Ms": 1.735833,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.008958,
+              "p50Ms": 1.602041,
+              "p95Ms": 1.912124,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.6319170000000001,
+              "p50Ms": 0.07645799999999991,
+              "p95Ms": 0.637499,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.997416,
+              "p50Ms": 1.055374,
+              "p95Ms": 1.85375,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.995124,
+              "p50Ms": 1.608874,
+              "p95Ms": 1.807416,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.630625,
+              "p50Ms": 0.05045799999999989,
+              "p95Ms": 0.6280410000000001,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 1.013749,
+              "p50Ms": 1.59125,
+              "p95Ms": 1.755875,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.0075,
+              "p50Ms": 1.278375,
+              "p95Ms": 1.722041,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.6788750000000001,
+              "p50Ms": -0.5074589999999999,
+              "p95Ms": 0.633208,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.998916,
+              "p50Ms": 1.094916,
+              "p95Ms": 1.759458,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.998583,
+              "p50Ms": 1.589625,
+              "p95Ms": 1.748458,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.6378739999999998,
+              "p50Ms": 0.10508300000000004,
+              "p95Ms": 0.6217920000000001,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.5074589999999999,
+          0.10508300000000004
+        ],
+        "verdict": "unresolved by A/A envelope"
+      }
+    ]
+  },
+  "rejectedAttempts": [
+    {
+      "reason": "Initial Mac precheck omitted await on async GPU reader; empty device metadata, excluded; fixed before A/A"
+    },
+    {
+      "reason": "Initial Windows Chrome selected Intel integrated graphics; excluded from RTX comparison; preserved separately"
+    }
+  ],
+  "dependencyInterpretation": "The captured core field is a source-verification reference, not an externally linked runtime. Published player bundles embed core; declaredBuildCore records package metadata and source hashes record embedded code.",
+  "benchmarkPin": {
+    "ref": "b35105b",
+    "path": "bench/main.ts",
+    "sha256": "498d68ddb6c8d0397bd271adae8d54d9afe15e105097e324ea72550116b0010d",
+    "verifiedAgainstOrigin": true
+  },
+  "reprepare": "Bundle and fixture hashes reproduced after final preparation-script edits; no timing rerun.",
+  "windows": {
+    "machine": {
+      "vendor": "Google Inc. (NVIDIA)",
+      "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
+    },
+    "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "clockMinStepMs": [
+      0.004999995231628418,
+      0.004999995231628418,
+      0.004999995231628418,
+      0.004999995231628418
+    ],
+    "crossOriginIsolated": true,
+    "input": {
+      "protocol": "hardware-same-frame-v1",
+      "sourceSha256": "498d68ddb6c8d0397bd271adae8d54d9afe15e105097e324ea72550116b0010d",
+      "dependencies": {
+        "old": {
+          "play": "1.17.1",
+          "core": "2.70.0",
+          "declaredBuildCore": "2.67.0",
+          "playSha256": "d714e3d1254a8fd78ddb57946543a1a92a8c7b6ff9af8526d6d4ca1fce71032e",
+          "embeddedCoreSources": [
+            {
+              "source": "src/core/world.ts",
+              "sha256": "c0b2d62dd20f210a67bf769de85cccc56f6993dc4e35733022eec3e94cce1f64"
+            },
+            {
+              "source": "src/core/skins.ts",
+              "sha256": "3017b68c0d3295b006cf83e6137a460a6b6460378324a39428cdc031b11518f0"
+            },
+            {
+              "source": "src/core/deform.ts",
+              "sha256": "7bf4842f9f79e1b33a4bf121f6d86a3898a4e7261d5cf1979107188c4be299be"
+            },
+            {
+              "source": "src/core/draw_order.ts",
+              "sha256": "af4c8c90ce0f74fec80aa998f8b508230ebce7980607559cf2f429ffdea3c034"
+            },
+            {
+              "source": "src/core/events.ts",
+              "sha256": "b177f7d21f10fa6a1df4362ef4e15c78b2f578bf95f7e85a8b968e2f01e70315"
+            },
+            {
+              "source": "src/core/clipping.ts",
+              "sha256": "f35dbb92cf0d1e2cf13a749ffeba55b148eb84dd8e57b2f3bd2d3aea83667230"
+            },
+            {
+              "source": "src/core/vertices.ts",
+              "sha256": "0097e79d4eae191a6de5cc3703034fd3300f8d296de850227f43cdebb4e0fc38"
+            },
+            {
+              "source": "src/core/constraints_path.ts",
+              "sha256": "48694bc52feef61a4171bd70483cb4e6438215cd851918a0362470e5d0fdd812"
+            },
+            {
+              "source": "src/core/constraints_physics.ts",
+              "sha256": "a2ca9d8b4aca0ee9814daffcb3700cbc6c68e5555d070cb1986c4a06386d2f98"
+            },
+            {
+              "source": "src/core/constraints_slider.ts",
+              "sha256": "f7ce3a11bdeaea5e3cf178cef97151bd013884658840ae76ff21a0fe8ccba33f"
+            },
+            {
+              "source": "src/core/constraints.ts",
+              "sha256": "c544ae4eab133e36632334c2a4d2bf3507245b357f901446e12f26a27dc0082c"
+            },
+            {
+              "source": "src/core/animation.ts",
+              "sha256": "c3f47b31cf3775061617ce63bae9f558de298b2ce9daf1b25fe3f864e806472e"
+            },
+            {
+              "source": "src/core/index.ts",
+              "sha256": "615693a901d1f44c447527cd5ef3e5ce2f456c166fa75f2bbf4291637100908f"
+            },
+            {
+              "source": "src/core/raw.ts",
+              "sha256": "a49b5a0850bd5623a8dab8f5935da1a5829c7e848900c4fdd3471436a9572a4c"
+            },
+            {
+              "source": "src/core/physics_parameters.ts",
+              "sha256": "e0d60f28e525ab98092f5a52fd5680e2bc8d57e86e32938f3f5e2499022ff695"
+            },
+            {
+              "source": "src/core/track.ts",
+              "sha256": "5734c5f94dfe4f2addb7975ec4d9848a54da92bb0b6681fa35eca0551fbc61d3"
+            },
+            {
+              "source": "src/core/tracks.ts",
+              "sha256": "d219dce430d05b53823ff77b15484f6078024efea0937adeecf0a7b64b9104e3"
+            },
+            {
+              "source": "src/core/uvs.ts",
+              "sha256": "fa4a30385b7dac6d3c135c62fbf24b1f4cb24f666a36ed6ae756ad290f8a37f3"
+            }
+          ]
+        },
+        "new": {
+          "play": "1.18.0",
+          "core": "2.72.0",
+          "declaredBuildCore": "2.72.0",
+          "playSha256": "3d733acf04bdc335e2bbf2f175f0d9b95ffa00ead87f2ae6f890977c1f2bc903",
+          "embeddedCoreSources": [
+            {
+              "source": "src/core/world.ts",
+              "sha256": "c0b2d62dd20f210a67bf769de85cccc56f6993dc4e35733022eec3e94cce1f64"
+            },
+            {
+              "source": "src/core/skins.ts",
+              "sha256": "3017b68c0d3295b006cf83e6137a460a6b6460378324a39428cdc031b11518f0"
+            },
+            {
+              "source": "src/core/deform.ts",
+              "sha256": "7bf4842f9f79e1b33a4bf121f6d86a3898a4e7261d5cf1979107188c4be299be"
+            },
+            {
+              "source": "src/core/draw_order.ts",
+              "sha256": "af4c8c90ce0f74fec80aa998f8b508230ebce7980607559cf2f429ffdea3c034"
+            },
+            {
+              "source": "src/core/events.ts",
+              "sha256": "1acf1d6bfcd3e7ac7f10ec09a55db5d89cfd13dfa246a421ea07a7a6994d163d"
+            },
+            {
+              "source": "src/core/clipping.ts",
+              "sha256": "f35dbb92cf0d1e2cf13a749ffeba55b148eb84dd8e57b2f3bd2d3aea83667230"
+            },
+            {
+              "source": "src/core/vertices.ts",
+              "sha256": "47e419d561512cac4f75ccb6feebeeeb690c15778d4754f1d9b0e9ed5ad429a9"
+            },
+            {
+              "source": "src/core/constraints_path.ts",
+              "sha256": "48694bc52feef61a4171bd70483cb4e6438215cd851918a0362470e5d0fdd812"
+            },
+            {
+              "source": "src/core/constraints_physics.ts",
+              "sha256": "a2ca9d8b4aca0ee9814daffcb3700cbc6c68e5555d070cb1986c4a06386d2f98"
+            },
+            {
+              "source": "src/core/constraints_slider.ts",
+              "sha256": "f7ce3a11bdeaea5e3cf178cef97151bd013884658840ae76ff21a0fe8ccba33f"
+            },
+            {
+              "source": "src/core/constraints.ts",
+              "sha256": "c544ae4eab133e36632334c2a4d2bf3507245b357f901446e12f26a27dc0082c"
+            },
+            {
+              "source": "src/core/animation.ts",
+              "sha256": "ebf1f8d7b814387b32ce14fa715a158f4c9bf01856afcadaf8dc71e81a5bd6d9"
+            },
+            {
+              "source": "src/core/index.ts",
+              "sha256": "e6e87a238e3c603e9f00c3820ededa74d02ec83843fa8c922a97639fe4acdf46"
+            },
+            {
+              "source": "src/core/raw.ts",
+              "sha256": "a8898e5135373c3bf6c06022e5f910cc1d2cac5188dd4c284be2226a888f31fe"
+            },
+            {
+              "source": "src/core/physics_parameters.ts",
+              "sha256": "e0d60f28e525ab98092f5a52fd5680e2bc8d57e86e32938f3f5e2499022ff695"
+            },
+            {
+              "source": "src/core/track.ts",
+              "sha256": "5734c5f94dfe4f2addb7975ec4d9848a54da92bb0b6681fa35eca0551fbc61d3"
+            },
+            {
+              "source": "src/core/tracks.ts",
+              "sha256": "fbe3ffd203d33a7f47836a7cf23c03cd79244dc400e7ca9208ad772564044647"
+            },
+            {
+              "source": "src/core/uvs.ts",
+              "sha256": "fa4a30385b7dac6d3c135c62fbf24b1f4cb24f666a36ed6ae756ad290f8a37f3"
+            },
+            {
+              "source": "src/runtime/curves.ts",
+              "sha256": "a616463fc8aeb6e126188c1e0f9a70a5292131b275f1b9bb6d634681ed0e17c7"
+            },
+            {
+              "source": "src/runtime/model.ts",
+              "sha256": "b26e349405623088dc14e3beb85d3ffebd5e8ca473bc991825d7b2ffddae3509"
+            },
+            {
+              "source": "src/runtime/pose.ts",
+              "sha256": "520c234dabb2d01719e1979b1b8669e279e54f223737ccb83a048b34c88e09f5"
+            }
+          ]
+        }
+      },
+      "assets": {
+        "rigcTag": "v2.64.1",
+        "spineRuntimesRef": "38ddb1a0652c2e3473e8487ebd88b4b291ad9a7e",
+        "skeletons": {
+          "spineboy": {
+            "animation": "walk",
+            "files": {
+              "spineJson": {
+                "bytes": 255660,
+                "gzipBytes": 58872,
+                "sha256": "24ccffc13e334e721dfd427ee2b8aea05c25b59167b5fb0bb0f9685e11d2a7d3"
+              },
+              "spineAtlas": {
+                "bytes": 1552,
+                "gzipBytes": 629,
+                "sha256": "fbd452640df513d637e0a34d21c1d3ea4edb27f57bd1856ffd5530b16ee83d00"
+              },
+              "atlasPng": {
+                "bytes": 242791,
+                "gzipBytes": 242628,
+                "sha256": "ab874448a224f8a92188e133735062c86e5f93eb7286b0fc37c5d39864e6569f"
+              },
+              "license": {
+                "bytes": 313,
+                "gzipBytes": 228,
+                "sha256": "08074c5f8c5f072626a0830250304fe3063d9d49f8f9b039e063bb238f2b993b"
+              },
+              "ingestedRig": {
+                "bytes": 157020,
+                "gzipBytes": 17903,
+                "sha256": "189036b5f38b33e4732b738f89730d6556cd120a259f875f4aaf8a866d3d32f3"
+              },
+              "ingestedMotion": {
+                "bytes": 485298,
+                "gzipBytes": 48458,
+                "sha256": "59797a1083d31ce14332a70889c562e876c5c191a5ae2423090f47cf723eb210"
+              },
+              "builtModel": {
+                "bytes": 748024,
+                "gzipBytes": 71576,
+                "sha256": "06bb683060a3e38866718885b78d295c2aa246739ff79efddb22bd7332dd8919"
+              },
+              "builtSpineJson": {
+                "bytes": 533481,
+                "gzipBytes": 64417,
+                "sha256": "75b7b27f074290082fdb271d8d314d4937b21449defc6ac0fc11aaef8bb2e7dc"
+              },
+              "builtSpineAtlas": {
+                "bytes": 1552,
+                "gzipBytes": 629,
+                "sha256": "fbd452640df513d637e0a34d21c1d3ea4edb27f57bd1856ffd5530b16ee83d00"
+              }
+            }
+          },
+          "raptor": {
+            "animation": "walk",
+            "files": {
+              "spineJson": {
+                "bytes": 293164,
+                "gzipBytes": 72924,
+                "sha256": "2ba9fe06007bc7b44d412bdb5722b1cd8b5fbcd0f7a263ae1aa957a555e9742a"
+              },
+              "spineAtlas": {
+                "bytes": 1604,
+                "gzipBytes": 648,
+                "sha256": "fb6e8532cb7665542b54ab661d0cadffe0171fcfe6b192595cd6ab622b08d8e6"
+              },
+              "atlasPng": {
+                "bytes": 418144,
+                "gzipBytes": 417299,
+                "sha256": "c2fcb6ac6c363f5b37f622feb727aed64fbd0205897a7ba8b6b45f8a091ab125"
+              },
+              "license": {
+                "bytes": 313,
+                "gzipBytes": 228,
+                "sha256": "08074c5f8c5f072626a0830250304fe3063d9d49f8f9b039e063bb238f2b993b"
+              },
+              "ingestedRig": {
+                "bytes": 305015,
+                "gzipBytes": 31974,
+                "sha256": "dba04cba8a141ff48f6b687c6d910cffc9e8d99e229fb4a5a8cc7d0fab4915ff"
+              },
+              "ingestedMotion": {
+                "bytes": 503148,
+                "gzipBytes": 51130,
+                "sha256": "85f7eb22187872bbd6b9af7e6bf544f77af032e830efd9104f0bf2f951c38457"
+              },
+              "builtModel": {
+                "bytes": 917106,
+                "gzipBytes": 88710,
+                "sha256": "4b02193c4100e1da392929b409f4b12806c50d79aca7d8bc3738ad83a5aa18fc"
+              },
+              "builtSpineJson": {
+                "bytes": 644232,
+                "gzipBytes": 79796,
+                "sha256": "aff5fbf52febd38e84e5d4fed26c4a8fd33f8a12bd6abc0630be8c28b12a5da7"
+              },
+              "builtSpineAtlas": {
+                "bytes": 1604,
+                "gzipBytes": 648,
+                "sha256": "fb6e8532cb7665542b54ab661d0cadffe0171fcfe6b192595cd6ab622b08d8e6"
+              }
+            }
+          }
+        }
+      },
+      "bundles": {
+        "old": "29b45d47de764393487ee70adbe3aa55bc05ade7fc5b105608d65b6218661350",
+        "new": "44582b98b6355a6a33687524f165f35d4f8901003bb4e924f090f402400b330f",
+        "main": "a3b96874eb73f74fa959599ffe8d534bb39b969fdfc0afcf384c5556120cead7"
+      },
+      "captureClientSha256": "48a7ceb436e477763fe9a3af61b6e677c7984b0b05d11f4b054407461711bb79",
+      "harnessFiles": {
+        "bench/main.ts": "498d68ddb6c8d0397bd271adae8d54d9afe15e105097e324ea72550116b0010d",
+        "packages/pixi/src/pixi.ts": "82305b7cb154571c2f25d8b5dd4a57e4262c535abb57046080703ac7a299834e",
+        "scripts/hardware-bench-client.js": "48a7ceb436e477763fe9a3af61b6e677c7984b0b05d11f4b054407461711bb79"
+      }
+    },
+    "rawSha256": {
+      "AA1": "71c4fe240f3967054c9036f74d995de6b16e73c94eb8d0cdf8af438ca32b79fe",
+      "AA2": "b467568d32f2e96ca67697978b4c4ef55d8c08c34c6c442c8748a4e296ee5723",
+      "AB1": "bd266a79574021c13d1ea0d1f551abffda3e9f276942ed988423d5f6aca716ac",
+      "AB2": "44cac88a8a8c5b129a526382dac0b4d4fe70f991f396e1d987643336c3c8c780"
+    },
+    "checks": {
+      "frames": 2880,
+      "halves": 96,
+      "aaBeforeAb": true
+    },
+    "rows": [
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "poseMs",
+        "envelopeMs": 0.09499990940093994,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.08000004291534424,
+              "p50Ms": 0.10000002384185791,
+              "p95Ms": 0.19499993324279785,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.08500003814697266,
+              "p50Ms": 0.10000002384185791,
+              "p95Ms": 0.17500007152557373,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.09499990940093994,
+              "p50Ms": 0.004999995231628418,
+              "p95Ms": 0.0549999475479126,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.08000004291534424,
+              "p50Ms": 0.10000002384185791,
+              "p95Ms": 0.15999996662139893,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.08500003814697266,
+              "p50Ms": 0.10500001907348633,
+              "p95Ms": 0.15999996662139893,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.060000061988830566,
+              "p50Ms": 0.004999995231628418,
+              "p95Ms": 0.05000007152557373,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.07999992370605469,
+              "p50Ms": 0.09000003337860107,
+              "p95Ms": 0.15500009059906006,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.039999961853027344,
+              "p50Ms": 0.04999995231628418,
+              "p95Ms": 0.0849999189376831,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.10000002384185791,
+              "p50Ms": -0.040000081062316895,
+              "p95Ms": -0.020000100135803223,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.07999992370605469,
+              "p50Ms": 0.10000002384185791,
+              "p95Ms": 0.1799999475479126,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.039999961853027344,
+              "p50Ms": 0.04999995231628418,
+              "p95Ms": 0.11500000953674316,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.13499987125396729,
+              "p50Ms": -0.05000007152557373,
+              "p95Ms": 0.014999985694885254,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.040000081062316895,
+          -0.05000007152557373
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "submitMs",
+        "envelopeMs": 0.039999961853027344,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.060000061988830566,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02500009536743164,
+              "p95Ms": 0.06500005722045898,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.039999961853027344,
+              "p50Ms": 0,
+              "p95Ms": 0.039999961853027344,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.060000061988830566,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.060000061988830566,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.02500009536743164,
+              "p50Ms": 0,
+              "p95Ms": 0.03000009059906006,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.060000061988830566,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.05500006675720215,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.039999961853027344,
+              "p50Ms": 0,
+              "p95Ms": 0.014999985694885254,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.06500005722045898,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.014999985694885254,
+              "p50Ms": 0.02499997615814209,
+              "p95Ms": 0.06999993324279785,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.03500008583068848,
+              "p50Ms": 0,
+              "p95Ms": 0.03500008583068848,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0,
+          0
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "cpuMs",
+        "envelopeMs": 0.1099998950958252,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.10000002384185791,
+              "p50Ms": 0.13499999046325684,
+              "p95Ms": 0.23000001907348633,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.10500001907348633,
+              "p50Ms": 0.12999999523162842,
+              "p95Ms": 0.21999990940093994,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.1099998950958252,
+              "p50Ms": 1.1920928955078125e-07,
+              "p95Ms": 0.07500004768371582,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.10000002384185791,
+              "p50Ms": 0.12999999523162842,
+              "p95Ms": 0.2250000238418579,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.10500001907348633,
+              "p50Ms": 0.12999999523162842,
+              "p95Ms": 0.20000004768371582,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.07999992370605469,
+              "p50Ms": 0.004999995231628418,
+              "p95Ms": 0.05500006675720215,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.09500002861022949,
+              "p50Ms": 0.12000000476837158,
+              "p95Ms": 0.21000003814697266,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.059999942779541016,
+              "p50Ms": 0.07499992847442627,
+              "p95Ms": 0.1499999761581421,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.12500011920928955,
+              "p50Ms": -0.040000081062316895,
+              "p95Ms": -0.009999871253967285,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.09500002861022949,
+              "p50Ms": 0.12999999523162842,
+              "p95Ms": 0.2200000286102295,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.059999942779541016,
+              "p50Ms": 0.07500004768371582,
+              "p95Ms": 0.16999995708465576,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.13999998569488525,
+              "p50Ms": -0.05000007152557373,
+              "p95Ms": 0.039999961853027344,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.040000081062316895,
+          -0.05000007152557373
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 1,
+        "metric": "gpuMs",
+        "envelopeMs": 0.009216,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0,
+              "p50Ms": 0.00512,
+              "p95Ms": 0.009216,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0,
+              "p50Ms": 0.002048,
+              "p95Ms": 0.009216,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.009216,
+              "p50Ms": -0.0030720000000000005,
+              "p95Ms": 0.009216,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0,
+              "p50Ms": 0.006144,
+              "p95Ms": 0.007168,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0,
+              "p50Ms": 0.001024,
+              "p95Ms": 0.008192,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.00816,
+              "p50Ms": -0.00512,
+              "p95Ms": 0.008192,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0,
+              "p50Ms": 0.00512,
+              "p95Ms": 0.024576,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0,
+              "p50Ms": 0.00512,
+              "p95Ms": 0.0256,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.024576,
+              "p50Ms": -0.0010239999999999997,
+              "p95Ms": 0.0256,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0,
+              "p50Ms": 0.00512,
+              "p95Ms": 0.008832,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0,
+              "p50Ms": 0.00512,
+              "p95Ms": 0.009216,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.008192,
+              "p50Ms": -0.0010239999999999997,
+              "p95Ms": 0.008192,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.0010239999999999997,
+          -0.0010239999999999997
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "poseMs",
+        "envelopeMs": 2.3799999952316284,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 6.574999928474426,
+              "p50Ms": 7.815000057220459,
+              "p95Ms": 9.100000023841858,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 6.440000057220459,
+              "p50Ms": 7.889999985694885,
+              "p95Ms": 9.235000014305115,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.125,
+              "p50Ms": 0.014999985694885254,
+              "p95Ms": 2.3799999952316284,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 6.544999957084656,
+              "p50Ms": 7.75,
+              "p95Ms": 9.024999976158142,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 6.414999961853027,
+              "p50Ms": 7.764999985694885,
+              "p95Ms": 9.115000009536743,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.9900000095367432,
+              "p50Ms": 0.1549999713897705,
+              "p95Ms": 2.3300000429153442,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 6.669999957084656,
+              "p50Ms": 8.355000019073486,
+              "p95Ms": 10.705000042915344,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 5.399999976158142,
+              "p50Ms": 5.899999976158142,
+              "p95Ms": 7.434999942779541,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -4.150000095367432,
+              "p50Ms": -2.3600000143051147,
+              "p95Ms": -0.5049999952316284,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 6.944999933242798,
+              "p50Ms": 9.550000071525574,
+              "p95Ms": 12.919999957084656,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 6.110000014305115,
+              "p50Ms": 8.299999952316284,
+              "p95Ms": 11.285000085830688,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -3.4850000143051147,
+              "p50Ms": -1.494999885559082,
+              "p95Ms": 1.225000023841858,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -2.3600000143051147,
+          -1.494999885559082
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "submitMs",
+        "envelopeMs": 0.6399998664855957,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 1.409999966621399,
+              "p50Ms": 1.7100000381469727,
+              "p95Ms": 2.0749999284744263,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.25,
+              "p50Ms": 1.4800000190734863,
+              "p95Ms": 1.8550000190734863,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.6399998664855957,
+              "p50Ms": -0.21500003337860107,
+              "p95Ms": 0.23000001907348633,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 1.3949999809265137,
+              "p50Ms": 1.6800000667572021,
+              "p95Ms": 1.9500000476837158,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.2649999856948853,
+              "p50Ms": 1.524999976158142,
+              "p95Ms": 1.7949999570846558,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.5449999570846558,
+              "p50Ms": -0.1650000810623169,
+              "p95Ms": 0.2099999189376831,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 1.590000033378601,
+              "p50Ms": 1.8799999952316284,
+              "p95Ms": 2.5700000524520874,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.5750000476837158,
+              "p50Ms": 1.8650000095367432,
+              "p95Ms": 2.5950000286102295,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.7100000381469727,
+              "p50Ms": 0.010000109672546387,
+              "p95Ms": 0.625,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 1.6200000047683716,
+              "p50Ms": 2.674999952316284,
+              "p95Ms": 4.274999976158142,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 1.6100000143051147,
+              "p50Ms": 2.5049999952316284,
+              "p95Ms": 4.284999966621399,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.7850000858306885,
+              "p50Ms": -0.13499999046325684,
+              "p95Ms": 0.8999999761581421,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.010000109672546387,
+          -0.13499999046325684
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "cpuMs",
+        "envelopeMs": 2.584999918937683,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 8.200000047683716,
+              "p50Ms": 9.524999976158142,
+              "p95Ms": 10.985000014305115,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 7.799999952316284,
+              "p50Ms": 9.379999995231628,
+              "p95Ms": 10.919999957084656,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.584999918937683,
+              "p50Ms": -0.18000006675720215,
+              "p95Ms": 2.274999976158142,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 8.084999918937683,
+              "p50Ms": 9.370000004768372,
+              "p95Ms": 10.740000009536743,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 7.860000014305115,
+              "p50Ms": 9.240000009536743,
+              "p95Ms": 11.054999947547913,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.2450000047683716,
+              "p50Ms": -0.0700000524520874,
+              "p95Ms": 2.415000081062317,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 8.370000004768372,
+              "p50Ms": 10.434999942779541,
+              "p95Ms": 12.820000052452087,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 7.009999990463257,
+              "p50Ms": 7.9649999141693115,
+              "p95Ms": 9.794999957084656,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -4.504999995231628,
+              "p50Ms": -2.3300000429153442,
+              "p95Ms": -0.03000009059906006,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 8.670000076293945,
+              "p50Ms": 12.204999923706055,
+              "p95Ms": 16.93999993801117,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 7.729999899864197,
+              "p50Ms": 10.764999985694885,
+              "p95Ms": 15.895000100135803,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -3.959999918937683,
+              "p50Ms": -1.5150001049041748,
+              "p95Ms": 1.315000057220459,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -2.3300000429153442,
+          -1.5150001049041748
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "spineboy",
+        "instances": 100,
+        "metric": "gpuMs",
+        "envelopeMs": 0.15667199999999998,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.054272,
+              "p50Ms": 0.128,
+              "p95Ms": 0.198656,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.050176,
+              "p50Ms": 0.126976,
+              "p95Ms": 0.19456,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.14848,
+              "p50Ms": -0.0010239999999999971,
+              "p95Ms": 0.139264,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.0512,
+              "p50Ms": 0.127648,
+              "p95Ms": 0.202752,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.04608,
+              "p50Ms": 0.130048,
+              "p95Ms": 0.197632,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.15667199999999998,
+              "p50Ms": 0.0030719999999999914,
+              "p95Ms": 0.146432,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.060416,
+              "p50Ms": 0.127936,
+              "p95Ms": 0.192512,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.055296,
+              "p50Ms": 0.126976,
+              "p95Ms": 0.191488,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.13824000000000003,
+              "p50Ms": 0,
+              "p95Ms": 0.13414399999999999,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.059392,
+              "p50Ms": 0.141312,
+              "p95Ms": 0.202752,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.047104,
+              "p50Ms": 0.125952,
+              "p95Ms": 0.192512,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.15564799999999998,
+              "p50Ms": -0.019456,
+              "p95Ms": 0.13414399999999999,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0,
+          -0.019456
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "poseMs",
+        "envelopeMs": 0.10000002384185791,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.09499990940093994,
+              "p50Ms": 0.10500001907348633,
+              "p95Ms": 0.16000008583068848,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.10500001907348633,
+              "p50Ms": 0.12000000476837158,
+              "p95Ms": 0.17500007152557373,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.0549999475479126,
+              "p50Ms": 0.009999990463256836,
+              "p95Ms": 0.05500006675720215,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.09499990940093994,
+              "p50Ms": 0.10500001907348633,
+              "p95Ms": 0.18499994277954102,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.10000002384185791,
+              "p50Ms": 0.11500000953674316,
+              "p95Ms": 0.21500003337860107,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.04499995708465576,
+              "p50Ms": 0.009999990463256836,
+              "p95Ms": 0.10000002384185791,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.09500002861022949,
+              "p50Ms": 0.125,
+              "p95Ms": 0.23000001907348633,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.07499992847442627,
+              "p50Ms": 0.09499990940093994,
+              "p95Ms": 0.16999995708465576,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.13999998569488525,
+              "p50Ms": -0.02500009536743164,
+              "p95Ms": 0.0549999475479126,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.09999990463256836,
+              "p50Ms": 0.13499999046325684,
+              "p95Ms": 0.21500003337860107,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.07499992847442627,
+              "p50Ms": 0.08500003814697266,
+              "p95Ms": 0.13499999046325684,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.12999999523162842,
+              "p50Ms": -0.039999961853027344,
+              "p95Ms": -0.004999995231628418,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.02500009536743164,
+          -0.039999961853027344
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "submitMs",
+        "envelopeMs": 0.02500009536743164,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.029999971389770508,
+              "p95Ms": 0.0549999475479126,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.029999971389770508,
+              "p95Ms": 0.059999942779541016,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.01999986171722412,
+              "p50Ms": 0,
+              "p95Ms": 0.019999980926513672,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.029999971389770508,
+              "p95Ms": 0.05000007152557373,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.020000100135803223,
+              "p50Ms": 0.029999971389770508,
+              "p95Ms": 0.060000061988830566,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.020000100135803223,
+              "p50Ms": 0,
+              "p95Ms": 0.02500009536743164,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.029999971389770508,
+              "p95Ms": 0.07999992370605469,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.034999966621398926,
+              "p95Ms": 0.11000001430511475,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.04499995708465576,
+              "p50Ms": 0.004999995231628418,
+              "p95Ms": 0.06500005722045898,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.039999961853027344,
+              "p95Ms": 0.09000003337860107,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.02499997615814209,
+              "p50Ms": 0.03500008583068848,
+              "p95Ms": 0.08000004291534424,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.05000007152557373,
+              "p50Ms": 0,
+              "p95Ms": 0.034999966621398926,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.004999995231628418,
+          0
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "cpuMs",
+        "envelopeMs": 0.12000012397766113,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.12000000476837158,
+              "p50Ms": 0.13999998569488525,
+              "p95Ms": 0.2200000286102295,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.12999999523162842,
+              "p50Ms": 0.1499999761581421,
+              "p95Ms": 0.2250000238418579,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.06500005722045898,
+              "p50Ms": 0.009999990463256836,
+              "p95Ms": 0.060000061988830566,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.12000000476837158,
+              "p50Ms": 0.13499999046325684,
+              "p95Ms": 0.21999990940093994,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.12999999523162842,
+              "p50Ms": 0.14500010013580322,
+              "p95Ms": 0.2600001096725464,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.05000007152557373,
+              "p50Ms": 0.009999990463256836,
+              "p95Ms": 0.12000012397766113,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.12000000476837158,
+              "p50Ms": 0.16499996185302734,
+              "p95Ms": 0.28000009059906006,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.10500001907348633,
+              "p50Ms": 0.13999998569488525,
+              "p95Ms": 0.2200000286102295,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.14499998092651367,
+              "p50Ms": -0.029999971389770508,
+              "p95Ms": 0.0700000524520874,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.12000000476837158,
+              "p50Ms": 0.17500007152557373,
+              "p95Ms": 0.2950000762939453,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.10000002384185791,
+              "p50Ms": 0.125,
+              "p95Ms": 0.21500003337860107,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.16499996185302734,
+              "p50Ms": -0.034999966621398926,
+              "p95Ms": 0.009999990463256836,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.029999971389770508,
+          -0.034999966621398926
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 1,
+        "metric": "gpuMs",
+        "envelopeMs": 0.013312000000000001,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.004096,
+              "p95Ms": 0.016384,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.004096,
+              "p95Ms": 0.01536,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.013312000000000001,
+              "p50Ms": -0.008192000000000001,
+              "p95Ms": 0.013312000000000001,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.009056,
+              "p95Ms": 0.016384,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.004096,
+              "p95Ms": 0.016384,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.013312000000000001,
+              "p50Ms": -0.008192000000000001,
+              "p95Ms": 0.013312000000000001,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.01024,
+              "p95Ms": 0.016384,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.00512,
+              "p95Ms": 0.016384,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.014336,
+              "p50Ms": -0.008192000000000001,
+              "p95Ms": 0.013312000000000001,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.004096,
+              "p95Ms": 0.01536,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.001024,
+              "p50Ms": 0.008896,
+              "p95Ms": 0.016384,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.013312000000000001,
+              "p50Ms": 0.0007039999999999998,
+              "p95Ms": 0.013312000000000001,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.008192000000000001,
+          0.0007039999999999998
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "poseMs",
+        "envelopeMs": 2.0399999618530273,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 9.28000009059906,
+              "p50Ms": 10.945000052452087,
+              "p95Ms": 12.25,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 9.384999990463257,
+              "p50Ms": 11.089999914169312,
+              "p95Ms": 12.550000071525574,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.5750000476837158,
+              "p50Ms": 0.17499995231628418,
+              "p95Ms": 1.6349999904632568,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 9.800000071525574,
+              "p50Ms": 10.944999933242798,
+              "p95Ms": 12.134999990463257,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 9.215000033378601,
+              "p50Ms": 10.850000023841858,
+              "p95Ms": 11.975000023841858,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.0399999618530273,
+              "p50Ms": -0.11000001430511475,
+              "p95Ms": 1.1200000047683716,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 9.860000014305115,
+              "p50Ms": 10.975000023841858,
+              "p95Ms": 12.5,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 10.375,
+              "p50Ms": 10.745000004768372,
+              "p95Ms": 12.620000004768372,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.190000057220459,
+              "p50Ms": 0,
+              "p95Ms": 1.8550000190734863,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 11.449999928474426,
+              "p50Ms": 13.950000047683716,
+              "p95Ms": 20.805000066757202,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 14.375,
+              "p50Ms": 16.200000047683716,
+              "p95Ms": 21.865000009536743,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -4.445000052452087,
+              "p50Ms": 2.3600000143051147,
+              "p95Ms": 7.820000052452087,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0,
+          2.3600000143051147
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "submitMs",
+        "envelopeMs": 0.8799999952316284,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 2.7750000953674316,
+              "p50Ms": 3.2200000286102295,
+              "p95Ms": 3.805000066757202,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.590000033378601,
+              "p50Ms": 2.8950001001358032,
+              "p95Ms": 3.5049999952316284,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.8349999189376831,
+              "p50Ms": -0.30500006675720215,
+              "p95Ms": 0.31999993324279785,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 2.9600000381469727,
+              "p50Ms": 3.325000047683716,
+              "p95Ms": 3.819999933242798,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.7149999141693115,
+              "p50Ms": 3.040000081062317,
+              "p95Ms": 3.4299999475479126,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.8799999952316284,
+              "p50Ms": -0.3049999475479126,
+              "p95Ms": 0.23000001907348633,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 2.4299999475479126,
+              "p50Ms": 2.7300000190734863,
+              "p95Ms": 3.5199999809265137,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 2.9450000524520874,
+              "p50Ms": 3.2350000143051147,
+              "p95Ms": 4.284999966621399,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.2600001096725464,
+              "p50Ms": 0.5200001001358032,
+              "p95Ms": 1.3099998235702515,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 3.4550000429153442,
+              "p50Ms": 4.775000095367432,
+              "p95Ms": 6.975000023841858,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 4.009999990463257,
+              "p50Ms": 5.549999952316284,
+              "p95Ms": 8.360000014305115,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -1.1549999713897705,
+              "p50Ms": 0.6999999284744263,
+              "p95Ms": 3.1299999952316284,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.5200001001358032,
+          0.6999999284744263
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "cpuMs",
+        "envelopeMs": 2.409999966621399,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 12.480000019073486,
+              "p50Ms": 14.200000047683716,
+              "p95Ms": 15.81000006198883,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 12.330000042915344,
+              "p50Ms": 13.965000033378601,
+              "p95Ms": 15.84500002861023,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.1100000143051147,
+              "p50Ms": -0.05500006675720215,
+              "p95Ms": 1.6449999809265137,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 13.284999966621399,
+              "p50Ms": 14.329999923706055,
+              "p95Ms": 15.550000071525574,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 12.485000014305115,
+              "p50Ms": 13.855000019073486,
+              "p95Ms": 15.039999961853027,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.409999966621399,
+              "p50Ms": -0.4549999237060547,
+              "p95Ms": 0.8399999141693115,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 12.735000014305115,
+              "p50Ms": 13.68500006198883,
+              "p95Ms": 15.539999961853027,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 13.40499997138977,
+              "p50Ms": 13.97000002861023,
+              "p95Ms": 16.730000019073486,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.8949999809265137,
+              "p50Ms": 0.44499993324279785,
+              "p95Ms": 2.8350000381469727,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 15.100000023841858,
+              "p50Ms": 19.02999997138977,
+              "p95Ms": 25.865000009536743,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 18.639999985694885,
+              "p50Ms": 22.040000081062317,
+              "p95Ms": 28.609999895095825,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -2.5199999809265137,
+              "p50Ms": 3.004999876022339,
+              "p95Ms": 9.059999942779541,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          0.44499993324279785,
+          3.004999876022339
+        ],
+        "verdict": "unresolved by A/A envelope"
+      },
+      {
+        "skeleton": "raptor",
+        "instances": 100,
+        "metric": "gpuMs",
+        "envelopeMs": 0.49868799999999996,
+        "aa": [
+          {
+            "a": {
+              "p05Ms": 0.34816,
+              "p50Ms": 0.396288,
+              "p95Ms": 0.858112,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.354304,
+              "p50Ms": 0.398336,
+              "p95Ms": 0.852992,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.49868799999999996,
+              "p50Ms": 0.02560000000000001,
+              "p95Ms": 0.49868799999999996,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.239616,
+              "p50Ms": 0.359424,
+              "p95Ms": 0.948224,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.222208,
+              "p50Ms": 0.3584,
+              "p95Ms": 1.28512,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.25292800000000004,
+              "p50Ms": -0.01433599999999996,
+              "p95Ms": 0.423936,
+              "samples": 180
+            }
+          }
+        ],
+        "ab": [
+          {
+            "a": {
+              "p05Ms": 0.244736,
+              "p50Ms": 0.36864,
+              "p95Ms": 0.905216,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.237568,
+              "p50Ms": 0.365568,
+              "p95Ms": 0.878592,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.60928,
+              "p50Ms": -0.057344000000000006,
+              "p95Ms": 0.52736,
+              "samples": 180
+            }
+          },
+          {
+            "a": {
+              "p05Ms": 0.30208,
+              "p50Ms": 0.386048,
+              "p95Ms": 0.915456,
+              "samples": 180
+            },
+            "b": {
+              "p05Ms": 0.30208,
+              "p50Ms": 0.391168,
+              "p95Ms": 2.91328,
+              "samples": 180
+            },
+            "paired": {
+              "p05Ms": -0.611328,
+              "p50Ms": -0.010239999999999971,
+              "p95Ms": 2.6111999999999997,
+              "samples": 180
+            }
+          }
+        ],
+        "deltaMs": [
+          -0.057344000000000006,
+          -0.010239999999999971
+        ],
+        "verdict": "unresolved by A/A envelope"
+      }
+    ]
+  },
+  "windowsCommand": [
+    "node",
+    "hardware-bench-windows.cjs"
+  ],
+  "windowsExitCode": 0,
+  "windowsMachine": {
+    "gpu": "NVIDIA GeForce RTX 4070 Ti",
+    "driverVersion": "32.0.16.1088",
+    "browserBuild": "155.0.8059.80",
+    "os": "Windows 11 Pro 10.0.26300 (build 26300)",
+    "route": "interactive scheduled task; frozen site copied from Mac and served on Windows loopback",
+    "headful": true,
+    "args": [
+      "--enable-gpu",
+      "--ignore-gpu-blocklist",
+      "--force-high-performance-gpu",
+      "--js-flags=--expose-gc",
+      "--enable-precise-memory-info",
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--force-device-scale-factor=1",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--window-size=1800,800"
+    ],
+    "observations": [
+      {
+        "phase": "before",
+        "at": "2026-10-26T18:14:51.2226555Z",
+        "cpuPercent": 24,
+        "activeGpuEngines": [
+          {
+            "percent": 22,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 3,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          }
+        ]
+      },
+      {
+        "phase": "precheck",
+        "at": "2026-10-26T18:14:52.7145381Z",
+        "cpuPercent": 15,
+        "activeGpuEngines": [
+          {
+            "percent": 21,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 3,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          }
+        ]
+      },
+      {
+        "phase": "AA1",
+        "at": "2026-10-26T18:14:58.7447521Z",
+        "cpuPercent": 20,
+        "activeGpuEngines": [
+          {
+            "percent": 28,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 3,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          }
+        ]
+      },
+      {
+        "phase": "AA2",
+        "at": "2026-10-26T18:15:17.0335147Z",
+        "cpuPercent": 12,
+        "activeGpuEngines": [
+          {
+            "percent": 20,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 3,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          }
+        ]
+      },
+      {
+        "phase": "AB1",
+        "at": "2026-10-26T18:15:34.8474639Z",
+        "cpuPercent": 27,
+        "activeGpuEngines": [
+          {
+            "percent": 26,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 4,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 51,
+            "processName": "python",
+            "adapterLuid": "0x00000000_0x000181F0"
+          },
+          {
+            "percent": 1,
+            "processName": "other process",
+            "adapterLuid": "0x00000000_0x000181F0"
+          }
+        ]
+      },
+      {
+        "phase": "AB2",
+        "at": "2026-10-26T18:15:54.0953427Z",
+        "cpuPercent": 19,
+        "activeGpuEngines": [
+          {
+            "percent": 26,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 4,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 55,
+            "processName": "python",
+            "adapterLuid": "0x00000000_0x000181F0"
+          },
+          {
+            "percent": 5,
+            "processName": "other process",
+            "adapterLuid": "0x00000000_0x0001953E"
+          }
+        ]
+      },
+      {
+        "phase": "after",
+        "at": "2026-10-26T18:16:17.8800066Z",
+        "cpuPercent": 37,
+        "activeGpuEngines": [
+          {
+            "percent": 21,
+            "processName": "unrelated-desktop-app",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 3,
+            "processName": "dwm",
+            "adapterLuid": "0x00000000_0x00017C10"
+          },
+          {
+            "percent": 78,
+            "processName": "python",
+            "adapterLuid": "0x00000000_0x000181F0"
+          }
+        ]
+      }
+    ],
+    "quietGpuBaseline": false,
+    "boundary": "unrelated-desktop-app used the selected display adapter at 22% before / 21% after, with dwm on that LUID. Python at 78% was on different LUID0x181F0. This is a contended RTX capture, not a quiet baseline.",
+    "benchmarkAdapterLuid": "0x17C10 (display adapter, identified by host-condition review)",
+    "cleanup": {
+      "exitCode": 0,
+      "stdout": "SUCCESS: The scheduled task \"RigAdaptersBench62Rtx\" was successfully deleted.\n{\"taskPresent\":false,\"resultsPreserved\":true,\"listener\":0}\n"
+    }
+  },
+  "windowsIntegrity": {
+    "hashes": [
+      {
+        "sha256": "59cd900bbf11d56ac6f0c8601daf39b05e2c1d5ed31ffff3f7401b182852006c",
+        "name": "aa-frozen.json"
+      },
+      {
+        "sha256": "71c4fe240f3967054c9036f74d995de6b16e73c94eb8d0cdf8af438ca32b79fe",
+        "name": "AA1.json"
+      },
+      {
+        "sha256": "b467568d32f2e96ca67697978b4c4ef55d8c08c34c6c442c8748a4e296ee5723",
+        "name": "AA2.json"
+      },
+      {
+        "sha256": "bd266a79574021c13d1ea0d1f551abffda3e9f276942ed988423d5f6aca716ac",
+        "name": "AB1.json"
+      },
+      {
+        "sha256": "44cac88a8a8c5b129a526382dac0b4d4fe70f991f396e1d987643336c3c8c780",
+        "name": "AB2.json"
+      },
+      {
+        "sha256": "1b376af38b5f111fbcdc8e1ee07074ee0e15a41129870e8fc9b7aaff3326d041",
+        "name": "precheck.json"
+      },
+      {
+        "sha256": "c8c616ff41d1303bc3c9f7a468687467e0990ec46df7cb72b27bf26a8d25ba8e",
+        "name": "receipt.json"
+      }
+    ],
+    "listener": 0,
+    "lastResult": 0,
+    "state": "Ready"
+  },
+  "assessment": {
+    "cpuEnvelopeWiderOnRtxForAllFourWorkloads": true,
+    "gpuEnvelopeWiderOnRtx": false,
+    "rtxImprovementShown": false,
+    "loadAbsorption": "The envelope represents observed A/A variability and rejects all apparent A/B gains. It does not remove persistent same-adapter contention or guarantee coverage of later drift. Raptor100 AB2 CPU +3.005ms is outside the2.410ms envelope but AB1 +0.445ms does not repeat it; no repeated regression is established.",
+    "quietRerun": "Needed to answer uncontended RTX performance; no rerun scheduled. Owner-approved quiet window is the next decision."
+  }
+}
