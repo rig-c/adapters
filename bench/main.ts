@@ -1,6 +1,7 @@
 import { DEFAULT_TIMING_PROTOCOL, parseTimingProtocol, type TimingProtocol } from './timing-protocol.ts';
 import { loadModel, type ModelAssets, type PosedFrame } from '@rig-c/play';
 import { PixiRig } from '@rig-c/pixi';
+import * as PixiNamespace from 'pixi.js';
 import { Container, ImageSource, WebGLRenderer } from 'pixi.js';
 import {
   AtlasAttachmentLoader,
@@ -13,7 +14,9 @@ import {
 } from '../tests/oracle/pixi-spine-bridge.ts';
 
 export type BenchSkeleton = 'spineboy' | 'raptor';
-export type BenchArm = 'spine-pixi-v8' | 'rig-c-pixi';
+export type BenchArm = 'spine-pixi-v8' | 'rig-c-pixi' | 'rig-c-pixi-compare';
+
+(window as Window & { __rigBenchPixi?: typeof PixiNamespace }).__rigBenchPixi = PixiNamespace;
 
 export interface CorrectnessSampleResult {
   time: number;
@@ -321,25 +324,83 @@ async function loadSpineOfficial(
   };
 }
 
+interface CompareBundleModule {
+  loadModel: typeof loadModel;
+  PixiRig: typeof PixiRig;
+}
+
+let compareBundleModule: CompareBundleModule | null = null;
+const cachedOfficialAssets = new Map<BenchSkeleton, LoadedSpineOfficial>();
+const cachedRigPlayAssets = new Map<BenchSkeleton, ModelAssets>();
+const cachedCompareRigPlayAssets = new Map<BenchSkeleton, ModelAssets>();
+
+function requireCompareBundle(): CompareBundleModule {
+  if (!compareBundleModule) {
+    throw new Error('BENCH_COMPARE_BUNDLE: compare bundle is not registered; call registerCompareBundle() first');
+  }
+  return compareBundleModule;
+}
+
+export async function registerCompareBundle(
+  source: { moduleUrl?: string; moduleCode?: string; label?: string } | string,
+): Promise<{ ok: true; label: string }> {
+  const opts = typeof source === 'string' ? { moduleUrl: source, label: source } : source;
+  const label = opts.label ?? opts.moduleUrl ?? 'inline-compare-bundle';
+  let importUrl = opts.moduleUrl ?? '';
+  let revokeUrl = '';
+  if (typeof opts.moduleCode === 'string' && opts.moduleCode.length > 0) {
+    revokeUrl = URL.createObjectURL(new Blob([opts.moduleCode], { type: 'text/javascript' }));
+    importUrl = revokeUrl;
+  }
+  if (!importUrl) {
+    throw new Error(`BENCH_COMPARE_BUNDLE: missing moduleUrl or moduleCode for "${label}"`);
+  }
+  let imported: unknown;
+  try {
+    imported = await import(/* @vite-ignore */ importUrl);
+  } catch (err) {
+    throw new Error(
+      `BENCH_COMPARE_BUNDLE: failed to load "${label}": ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+  }
+  const candidate = imported as Partial<CompareBundleModule> | null;
+  if (
+    !candidate ||
+    typeof candidate.loadModel !== 'function' ||
+    typeof candidate.PixiRig !== 'function'
+  ) {
+    throw new Error(
+      `BENCH_COMPARE_BUNDLE: "${label}" must export functions { loadModel, PixiRig }`,
+    );
+  }
+  compareBundleModule = {
+    loadModel: candidate.loadModel,
+    PixiRig: candidate.PixiRig,
+  };
+  cachedCompareRigPlayAssets.clear();
+  return { ok: true, label };
+}
+
 async function loadRigPlayModel(
   skeleton: BenchSkeleton,
   baseUrl = '/bench',
   cacheBust = '',
+  arm: 'rig-c-pixi' | 'rig-c-pixi-compare' = 'rig-c-pixi',
 ): Promise<ModelAssets> {
   const suffix = cacheBust ? `?cb=${encodeURIComponent(cacheBust)}` : '';
   const modelUrl = `${baseUrl}/${skeleton}/skeleton.model.json${suffix}`;
   await requireFetchText(skeleton, modelUrl, cacheBust ? 'no-store' : 'default');
+  const loader = arm === 'rig-c-pixi-compare' ? requireCompareBundle().loadModel : loadModel;
   try {
-    return await loadModel({ modelUrl, regions: 'none' });
+    return await loader({ modelUrl, regions: 'none' });
   } catch (err) {
     throw new Error(
       `BENCH_ASSET_MISSING: ${skeleton} (${modelUrl}) failed to load model: ${err instanceof Error ? err.message : String(err)} — run "bash scripts/fetch-assets.sh"`,
     );
   }
 }
-
-const cachedOfficialAssets = new Map<BenchSkeleton, LoadedSpineOfficial>();
-const cachedRigPlayAssets = new Map<BenchSkeleton, ModelAssets>();
 
 async function getCachedSpineOfficial(
   skeleton: BenchSkeleton,
@@ -355,11 +416,13 @@ async function getCachedSpineOfficial(
 async function getCachedRigPlayModel(
   skeleton: BenchSkeleton,
   baseUrl = '/bench',
+  arm: 'rig-c-pixi' | 'rig-c-pixi-compare' = 'rig-c-pixi',
 ): Promise<ModelAssets> {
-  const existing = cachedRigPlayAssets.get(skeleton);
+  const cache = arm === 'rig-c-pixi-compare' ? cachedCompareRigPlayAssets : cachedRigPlayAssets;
+  const existing = cache.get(skeleton);
   if (existing) return existing;
-  const loaded = await loadRigPlayModel(skeleton, baseUrl);
-  cachedRigPlayAssets.set(skeleton, loaded);
+  const loaded = await loadRigPlayModel(skeleton, baseUrl, '', arm);
+  cache.set(skeleton, loaded);
   return loaded;
 }
 
@@ -392,8 +455,10 @@ function createRigInstance(
   scale: number,
   initialTime: number,
   useSeek = true,
+  arm: 'rig-c-pixi' | 'rig-c-pixi-compare' = 'rig-c-pixi',
 ): PixiRig {
-  const rig = new PixiRig(assets, { ticker: null, autoUpdate: false });
+  const RigCtor = arm === 'rig-c-pixi-compare' ? requireCompareBundle().PixiRig : PixiRig;
+  const rig = new RigCtor(assets, { ticker: null, autoUpdate: false });
   rig.position.set(x, y);
   rig.scale.set(scale);
   rig.play(animation, { loop: true });
@@ -515,9 +580,15 @@ function comparePixelBuffers(
 
 export async function checkCorrectness(
   skeleton: BenchSkeleton,
-  options: { times?: number[]; mutant?: 'none' | 'time-offset'; baseUrl?: string } = {},
+  options: {
+    times?: number[];
+    mutant?: 'none' | 'time-offset';
+    baseUrl?: string;
+    arm?: 'rig-c-pixi' | 'rig-c-pixi-compare';
+  } = {},
 ): Promise<CorrectnessResult> {
   const baseUrl = options.baseUrl ?? '/bench';
+  const candidateArm = options.arm ?? 'rig-c-pixi';
   await verifyAssets(skeleton, baseUrl);
   const { renderer } = await getRenderer();
   const gl = renderer.gl;
@@ -527,7 +598,7 @@ export async function checkCorrectness(
 
   const [official, rigAssets] = await Promise.all([
     loadSpineOfficial(skeleton, baseUrl),
-    loadRigPlayModel(skeleton, baseUrl),
+    loadRigPlayModel(skeleton, baseUrl, '', candidateArm),
   ]);
 
   const samples: CorrectnessSampleResult[] = [];
@@ -559,6 +630,8 @@ export async function checkCorrectness(
         placement.y,
         placement.scale,
         rigTime,
+        true,
+        candidateArm,
       );
       stageB.addChild(rig);
       renderer.render({ container: stageB });
@@ -647,7 +720,7 @@ export async function measureLoadToFirstFrame(
     return { skeleton, arm, loadMs, drawCalls };
   }
 
-  const assets = await loadRigPlayModel(skeleton, baseUrl, cb);
+  const assets = await loadRigPlayModel(skeleton, baseUrl, cb, arm);
   const rig = createRigInstance(
     assets,
     placement.animation,
@@ -655,6 +728,8 @@ export async function measureLoadToFirstFrame(
     placement.y,
     placement.scale,
     0,
+    true,
+    arm,
   );
   stage.addChild(rig);
   counters.reset();
@@ -681,6 +756,7 @@ interface PreparedStage {
 }
 
 let activePreparedStage: PreparedStage | null = null;
+const preparedStages = new Map<BenchArm, PreparedStage>();
 
 function computePlacementGrid(
   skeleton: BenchSkeleton,
@@ -714,10 +790,22 @@ export async function prepareBenchmarkStage(
   instances: number,
   warmupFrames = 60,
   baseUrl = '/bench',
+  options: { keepPrepared?: boolean } = {},
 ): Promise<{ skeleton: BenchSkeleton; arm: BenchArm; instances: number; warmupFrames: number; drawCallsPerFrame: number; trianglesPerFrame: number }> {
-  if (activePreparedStage) {
-    activePreparedStage.dispose();
-    activePreparedStage = null;
+  if (!options.keepPrepared) {
+    for (const existing of preparedStages.values()) {
+      existing.dispose();
+    }
+    preparedStages.clear();
+    if (activePreparedStage) {
+      activePreparedStage = null;
+    }
+  } else {
+    const existingForArm = preparedStages.get(arm);
+    if (existingForArm) {
+      existingForArm.dispose();
+      preparedStages.delete(arm);
+    }
   }
   const winWithGc = window as Window & { gc?: () => void };
   if (typeof winWithGc.gc === 'function') {
@@ -778,7 +866,8 @@ export async function prepareBenchmarkStage(
     const drawCallsPerFrame = counters.drawCalls;
     const trianglesPerFrame = counters.triangles;
 
-    activePreparedStage = {
+    let disposed = false;
+    const prepared: PreparedStage = {
       skeleton,
       arm,
       instances,
@@ -788,6 +877,8 @@ export async function prepareBenchmarkStage(
       poseAll,
       drawAll,
       dispose() {
+        if (disposed) return;
+        disposed = true;
         stage.removeChildren();
         for (const s of spines) {
           s.destroy({ children: true });
@@ -795,10 +886,12 @@ export async function prepareBenchmarkStage(
         stage.destroy({ children: true });
       },
     };
+    preparedStages.set(arm, prepared);
+    activePreparedStage = prepared;
     return { skeleton, arm, instances, warmupFrames, drawCallsPerFrame, trianglesPerFrame };
   }
 
-  const assets = await getCachedRigPlayModel(skeleton, baseUrl);
+  const assets = await getCachedRigPlayModel(skeleton, baseUrl, arm);
   const rigs: PixiRig[] = [];
   const posedFrames: PosedFrame[] = new Array<PosedFrame>(grid.length);
   for (let i = 0; i < grid.length; i++) {
@@ -811,6 +904,7 @@ export async function prepareBenchmarkStage(
       slot.scale,
       slot.phase,
       false,
+      arm,
     );
     rigs.push(rig);
     posedFrames[i] = rig.drawnFrame();
@@ -852,7 +946,8 @@ export async function prepareBenchmarkStage(
   const drawCallsPerFrame = counters.drawCalls;
   const trianglesPerFrame = counters.triangles;
 
-  activePreparedStage = {
+  let disposed = false;
+  const prepared: PreparedStage = {
     skeleton,
     arm,
     instances,
@@ -862,6 +957,8 @@ export async function prepareBenchmarkStage(
     poseAll,
     drawAll,
     dispose() {
+      if (disposed) return;
+      disposed = true;
       stage.removeChildren();
       for (const r of rigs) {
         r.destroy({ children: true });
@@ -869,7 +966,18 @@ export async function prepareBenchmarkStage(
       stage.destroy({ children: true });
     },
   };
+  preparedStages.set(arm, prepared);
+  activePreparedStage = prepared;
   return { skeleton, arm, instances, warmupFrames, drawCallsPerFrame, trianglesPerFrame };
+}
+
+export function activatePreparedStage(arm: BenchArm): { arm: BenchArm; skeleton: BenchSkeleton; instances: number } {
+  const prepared = preparedStages.get(arm);
+  if (!prepared) {
+    throw new Error(`BENCH_STAGE_NOT_PREPARED: arm "${arm}" is not prepared; call prepareBenchmarkStage() first`);
+  }
+  activePreparedStage = prepared;
+  return { arm: prepared.arm, skeleton: prepared.skeleton, instances: prepared.instances };
 }
 
 function quantile(sorted: number[], q: number): number {
@@ -962,6 +1070,7 @@ export async function collectPreparedRuns(
   measuredFrames: number,
   checkRepro: boolean,
   protocol: TimingProtocol = DEFAULT_TIMING_PROTOCOL,
+  options: { skipPreWarmup?: boolean; settleFrames?: number } = {},
 ): Promise<{ set1: FrameBatchResult[]; set2: FrameBatchResult[] }> {
   const timingProtocol = parseTimingProtocol(protocol);
   if (!activePreparedStage) {
@@ -972,15 +1081,23 @@ export async function collectPreparedRuns(
   const gl = renderer.gl;
   const dt = 1 / 60;
 
-  const winWithGc = window as Window & { gc?: () => void };
-  if (typeof winWithGc.gc === 'function') {
-    winWithGc.gc();
-    winWithGc.gc();
-  }
-  // Keep CPU P-core frequency and GPU command queue in steady state right after GC
-  for (let w = 0; w < 45; w++) {
-    prepared.poseAll(dt);
-    prepared.drawAll();
+  if (!options.skipPreWarmup) {
+    const winWithGc = window as Window & { gc?: () => void };
+    if (typeof winWithGc.gc === 'function') {
+      winWithGc.gc();
+      winWithGc.gc();
+    }
+    // Keep CPU P-core frequency and GPU command queue in steady state right after GC
+    for (let w = 0; w < 45; w++) {
+      prepared.poseAll(dt);
+      prepared.drawAll();
+    }
+  } else {
+    const settleFrames = options.settleFrames ?? 0;
+    for (let w = 0; w < settleFrames; w++) {
+      prepared.poseAll(dt);
+      prepared.drawAll();
+    }
   }
 
   if (timingProtocol === 'gpu-complete-v2') {
@@ -1035,6 +1152,20 @@ export async function collectPreparedRuns(
   }
   gl.finish();
   return { set1, set2 };
+}
+
+export async function runInterleavedArmBatch(
+  arm: BenchArm,
+  measuredFrames: number,
+  checkRepro: boolean,
+  protocol: TimingProtocol = DEFAULT_TIMING_PROTOCOL,
+  settleFrames = 4,
+): Promise<{ set1: FrameBatchResult[]; set2: FrameBatchResult[] }> {
+  activatePreparedStage(arm);
+  return collectPreparedRuns(1, measuredFrames, checkRepro, protocol, {
+    skipPreWarmup: true,
+    settleFrames,
+  });
 }
 
 export async function checkDrawCallMutants(baseUrl = '/bench'): Promise<DrawCallMutantResult> {
@@ -1137,6 +1268,10 @@ export async function checkDrawCallMutants(baseUrl = '/bench'): Promise<DrawCall
 }
 
 export async function disposePreparedStage(): Promise<void> {
+  for (const existing of preparedStages.values()) {
+    existing.dispose();
+  }
+  preparedStages.clear();
   if (activePreparedStage) {
     activePreparedStage.dispose();
     activePreparedStage = null;
@@ -1151,11 +1286,14 @@ export async function disposePreparedStage(): Promise<void> {
 export interface RigBenchHarness {
   getGpuInfo: typeof getGpuInfo;
   verifyAssets: typeof verifyAssets;
+  registerCompareBundle: typeof registerCompareBundle;
   checkCorrectness: typeof checkCorrectness;
   measureLoadToFirstFrame: typeof measureLoadToFirstFrame;
   prepareBenchmarkStage: typeof prepareBenchmarkStage;
+  activatePreparedStage: typeof activatePreparedStage;
   runPreparedFrames: typeof runPreparedFrames;
   collectPreparedRuns: typeof collectPreparedRuns;
+  runInterleavedArmBatch: typeof runInterleavedArmBatch;
   checkDrawCallMutants: typeof checkDrawCallMutants;
   disposePreparedStage: typeof disposePreparedStage;
 }
@@ -1169,11 +1307,14 @@ declare global {
 window.__rigBench = {
   getGpuInfo,
   verifyAssets,
+  registerCompareBundle,
   checkCorrectness,
   measureLoadToFirstFrame,
   prepareBenchmarkStage,
+  activatePreparedStage,
   runPreparedFrames,
   collectPreparedRuns,
+  runInterleavedArmBatch,
   checkDrawCallMutants,
   disposePreparedStage,
 };
