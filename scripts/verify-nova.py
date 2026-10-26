@@ -112,14 +112,20 @@ if '--update-oracle-lock' in os.sys.argv:
     run(['bun', 'scripts/prepare-oracle.mjs', '--update-lock'], 'oracle-lock')
     shutil.copyfile(root / 'tests/oracle/package-lock.json', out / 'oracle-package-lock.json')
 if '--prepare' not in os.sys.argv:
-    focused = '--phaser-only' in os.sys.argv or '--bench-only' in os.sys.argv
+    focused = any(flag in os.sys.argv for flag in ['--phaser-only', '--bench-only', '--submit-profile'])
     for script in ['build:libraries', 'typecheck', 'lint'] + ([] if focused else ['check:packages']):
         run(['bun', 'run', script], script.replace(':', '-'))
     run(['bunx', '--no-install', 'playwright', 'install', 'chromium', 'webkit'], 'browser-install')
     if not focused:
         run(['bun', 'run', 'check:release'], 'check-release')
         run(['bun', 'run', 'smoke'], 'installed-smoke')
-    if '--bench-only' in os.sys.argv:
+    if '--submit-profile' in os.sys.argv:
+        run(['bun', 'run', 'fetch-assets'], 'profile-assets')
+        run(['bun', 'scripts/profile-pixi-submit.mjs', '--precheck'], 'profile-precheck')
+        for invocation in [1, 2]:
+            run(['bun', 'scripts/profile-pixi-submit.mjs'], f'profile-pass-{invocation}')
+            shutil.copytree(root / 'test-results/submit-profile', out / f'profile-pass-{invocation}')
+    elif '--bench-only' in os.sys.argv:
         run(['bun', 'run', 'fetch-assets'], 'bench-assets')
         run(['bun', 'run', 'test:bench'], 'bench-contract')
         run(['bun', 'run', 'bench', '--', '--smoke', '--json'], 'bench-smoke')
