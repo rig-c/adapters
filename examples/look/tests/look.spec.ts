@@ -7,6 +7,12 @@ declare global {
   interface Window {
     __lookDemo?: LookDemoApi;
     __lookDemoError?: string;
+    __lookLifecycle?: {
+      api: LookDemoApi;
+      canvas: HTMLCanvasElement;
+      dials: LookDemoApi['dials'];
+      drawCalls: number;
+    };
   }
 }
 
@@ -576,5 +582,99 @@ for (const host of ['pixi', 'phaser', 'three'] as const) {
     expect(errors).toEqual([]);
     await page.evaluate(() => window.__lookDemo!.dispose());
     expect(await page.evaluate(() => window.__lookDemo!.ready)).toBe(false);
+  });
+}
+
+
+for (const host of ['pixi', 'phaser', 'three'] as const) {
+  test(`Issue #52 — BFCache preserves automatic rendering and final cleanup on ${host}`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    const assetRequests: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => {
+      if (/\.(?:model\.json|png)(?:$|\?)/.test(request.url())) assetRequests.push(request.url());
+    });
+    // No manual mode or calls to step(): the application's rAF must draw.
+    await page.goto(`/examples/look/index.html?host=${host}`);
+    await page.waitForFunction(() => window.__lookDemo?.ready || window.__lookDemoError);
+    expect(await page.evaluate(() => window.__lookDemoError ?? null)).toBeNull();
+    await page.evaluate(() => {
+      const api = window.__lookDemo!;
+      const canvas = document.querySelector<HTMLCanvasElement>('#look-stage canvas')!;
+      const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+      if (!gl) throw new Error('Look lifecycle probe requires WebGL');
+      const probe = window.__lookLifecycle = { api, canvas, dials: api.dials, drawCalls: 0 };
+      const elements = gl.drawElements.bind(gl);
+      gl.drawElements = (...args) => { probe.drawCalls++; elements(...args); };
+      const arrays = gl.drawArrays.bind(gl);
+      gl.drawArrays = (...args) => { probe.drawCalls++; arrays(...args); };
+      if (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext) {
+        const elementsInstanced = gl.drawElementsInstanced.bind(gl);
+        gl.drawElementsInstanced = (...args) => { probe.drawCalls++; elementsInstanced(...args); };
+        const arraysInstanced = gl.drawArraysInstanced.bind(gl);
+        gl.drawArraysInstanced = (...args) => { probe.drawCalls++; arraysInstanced(...args); };
+      }
+    });
+    await page.waitForFunction(() => window.__lookLifecycle!.drawCalls >= 2);
+    const initialAssetRequests = assetRequests.length;
+    expect(initialAssetRequests).toBeGreaterThan(0);
+    const canvas = page.locator('#look-stage canvas');
+    const box = (await canvas.boundingBox())!;
+
+    for (const [cycle, fx] of [[1, 0.8], [2, -0.8]] as const) {
+      const retained = await page.evaluate(() => {
+        const probe = window.__lookLifecycle!;
+        const drawsBefore = probe.drawCalls;
+        window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        return {
+          ready: probe.api.ready,
+          sameApi: window.__lookDemo === probe.api,
+          sameDials: probe.api.dials === probe.dials,
+          sameCanvas: document.querySelector('#look-stage canvas') === probe.canvas,
+          drawsBefore,
+          noseX: probe.api.inspectPose(['nose']).bones.nose?.x ?? null,
+        };
+      });
+      console.log('[look:52:bfcache-retained]', JSON.stringify({ host, backend: testInfo.project.name, cycle, ...retained }));
+      expect(retained.ready, 'persisted pagehide keeps look ready').toBe(true);
+      expect(retained.sameApi).toBe(true);
+      expect(retained.sameDials).toBe(true);
+      expect(retained.sameCanvas).toBe(true);
+      await page.waitForFunction(previous => window.__lookLifecycle!.drawCalls > previous, retained.drawsBefore);
+      await page.mouse.move(box.x + box.width * (fx + 1) * 0.5, box.y + box.height * 0.1);
+      await page.waitForFunction(target => {
+        const api = window.__lookDemo!;
+        const snapshot = api.snapshot;
+        return Math.abs(snapshot.fx - target) < 0.001 && Math.abs(snapshot.fy - 0.8) < 0.001 &&
+          Math.abs(snapshot.headYaw - target * api.dials!.Y) <= Math.abs(target * api.dials!.Y) * 0.02;
+      }, fx);
+      const response = await page.evaluate(() => {
+        const probe = window.__lookLifecycle!;
+        return { drawCalls: probe.drawCalls, pixels: probe.api.countNonEmptyPixels(), snapshot: probe.api.snapshot, noseX: probe.api.inspectPose(['nose']).bones.nose.x };
+      });
+      expect(response.drawCalls).toBeGreaterThan(retained.drawsBefore);
+      expectVisibleHost(response.pixels);
+      expect(response.snapshot.eyeX).toBeCloseTo(fx, 3);
+      expect(response.snapshot.eyeY).toBeCloseTo(0.8, 3);
+      expect((response.noseX - retained.noseX!) * Math.sign(fx)).toBeGreaterThan(0);
+      expect(assetRequests.length).toBe(initialAssetRequests);
+      console.log('[look:52:bfcache-response]', JSON.stringify({ host, backend: testInfo.project.name, cycle, fx, drawsBefore: retained.drawsBefore, drawsAfter: response.drawCalls, pixels: response.pixels, headYaw: response.snapshot.headYaw, assetRequests: assetRequests.length }));
+    }
+
+    const cleanup = await page.evaluate(() => {
+      const probe = window.__lookLifecycle!;
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+      return { ready: probe.api.ready, dialsReleased: probe.api.dials === null, canvasConnected: probe.canvas.isConnected, canvasCount: document.querySelectorAll('#look-stage canvas').length, drawCalls: probe.drawCalls };
+    });
+    console.log('[look:52:bfcache-cleanup]', JSON.stringify({ host, backend: testInfo.project.name, ...cleanup }));
+    expect(cleanup.ready, 'non-persisted pagehide disposes look').toBe(false);
+    expect(cleanup.dialsReleased).toBe(true);
+    expect(cleanup.canvasConnected).toBe(false);
+    expect(cleanup.canvasCount).toBe(0);
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(await page.evaluate(() => window.__lookLifecycle!.drawCalls)).toBe(cleanup.drawCalls);
+    await page.evaluate(() => { window.__lookDemo!.dispose(); window.__lookDemo!.dispose(); });
+    expect(errors).toEqual([]);
   });
 }

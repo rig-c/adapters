@@ -183,6 +183,7 @@ async function bootLookDemo(): Promise<void> {
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
+    window.removeEventListener('pagehide', onPageHide);
     cancelAnimationFrame(rafId);
     rafId = 0;
     if (currentRig) host.unmount(currentRig);
@@ -192,9 +193,13 @@ async function bootLookDemo(): Promise<void> {
     currentAssets = null;
     currentDocument = null;
     host.destroy();
+    host.canvas.remove();
     document.body.dataset.lookReady = 'false';
   };
-  window.addEventListener('pagehide', dispose, { once: true });
+  const onPageHide = (event: PageTransitionEvent): void => {
+    if (!event.persisted) dispose();
+  };
+  window.addEventListener('pagehide', onPageHide);
   const api: LookDemoApi = {
     host: hostName,
     dispose,
