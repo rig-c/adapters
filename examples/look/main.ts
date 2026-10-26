@@ -1,6 +1,7 @@
 import { loadModel, type ModelAssets } from '@rig-c/play';
-import { Container, WebGLRenderer } from 'pixi.js';
-import { PixiRig } from '@rig-c/pixi';
+import { readModel, type CompiledDocument } from 'rig-c/core';
+import { createLookHost, type LookHostName } from './hosts.ts';
+import type { LookRig } from './look.ts';
 import {
   LookController,
   pointerToNormalized,
@@ -31,6 +32,8 @@ export interface ThreeAdapterVerificationReport {
 
 export interface LookDemoApi {
   readonly ready: boolean;
+  readonly host: LookHostName;
+  dispose(): void;
   readonly modelUrl: string;
   readonly canvasWidth: number;
   readonly canvasHeight: number;
@@ -65,22 +68,6 @@ const STAGE_WIDTH = 1920;
 const STAGE_HEIGHT = 1080;
 const DEFAULT_MODEL_URL = '/examples/look/rig/skeleton.model.json';
 
-function frameRigInStage(rig: PixiRig): void {
-  const bounds = rig.bounds();
-  if (!bounds) {
-    rig.position.set(STAGE_WIDTH * 0.5, STAGE_HEIGHT * 0.85);
-    return;
-  }
-  const scale = Math.min(
-    (STAGE_WIDTH * 0.82) / Math.max(1, bounds.width),
-    (STAGE_HEIGHT * 0.88) / Math.max(1, bounds.height),
-  );
-  const cx = bounds.x + bounds.width * 0.5;
-  const cy = -(bounds.y + bounds.height * 0.5);
-  rig.scale.set(scale, scale);
-  rig.position.set(STAGE_WIDTH * 0.5 - cx * scale, STAGE_HEIGHT * 0.5 - cy * scale);
-}
-
 function updateHud(
   hud: HTMLElement,
   controller: LookController,
@@ -109,23 +96,13 @@ async function bootLookDemo(): Promise<void> {
   const stageHost = document.getElementById('look-stage') as HTMLDivElement;
   const hud = document.getElementById('hud') as HTMLDivElement;
 
-  const renderer = new WebGLRenderer();
-  await renderer.init({
-    width: STAGE_WIDTH,
-    height: STAGE_HEIGHT,
-    backgroundAlpha: 0,
-    antialias: true,
-    resolution: 1,
-    preserveDrawingBuffer: true,
-    clearBeforeRender: true,
-  });
+  const hostName = params.get('host') ?? 'pixi';
+  if (hostName !== 'pixi' && hostName !== 'phaser' && hostName !== 'three') throw new Error(`LookDemo: unknown host "${hostName}"`);
   stageHost.innerHTML = '';
-  stageHost.appendChild(renderer.canvas);
-
-  const stage = new Container();
-
+  const host = await createLookHost(hostName, stageHost, STAGE_WIDTH, STAGE_HEIGHT);
   let currentAssets: ModelAssets | null = null;
-  let currentRig: PixiRig | null = null;
+  let currentDocument: CompiledDocument | null = null;
+  let currentRig: LookRig | null = null;
   let controller: LookController | null = null;
   let currentModelUrl = initialModelUrl;
   let lastFrameMs = 0;
@@ -133,25 +110,28 @@ async function bootLookDemo(): Promise<void> {
   async function mountRig(modelUrl: string): Promise<LookController> {
     document.body.dataset.lookReady = 'false';
     if (currentRig) {
-      stage.removeChild(currentRig);
-      renderer.render({ container: stage });
-      currentRig.destroy();
+      host.unmount(currentRig);
+      currentAssets?.dispose();
+      currentAssets = null;
       currentRig = null;
     }
+    const response = await fetch(modelUrl);
+    if (!response.ok) throw new Error(`LookDemo: model fetch ${modelUrl} failed (${response.status})`);
+    const text = await response.text();
+    const doc = readModel(text, modelUrl);
+    // Give both public readers the exact same response bytes.
     const assets = await loadModel({
-      modelUrl,
-      regions: 'none',
+      modelUrl, regions: 'none',
+      fetch: (input, init) => input === modelUrl
+        ? Promise.resolve(new Response(text, { headers: { 'Content-Type': 'application/json' } }))
+        : fetch(input, init),
     });
-    const rig = new PixiRig(assets, {
-      ticker: null,
-      autoUpdate: false,
-    });
-    stage.addChild(rig);
-    const ctrl = new LookController(rig, assets);
-    frameRigInStage(rig);
-    renderer.render({ container: stage });
+    const rig = host.mount(assets);
+    const ctrl = new LookController(rig, assets, doc);
+    host.render();
 
     currentAssets = assets;
+    currentDocument = doc;
     currentRig = rig;
     controller = ctrl;
     currentModelUrl = modelUrl;
@@ -168,20 +148,20 @@ async function bootLookDemo(): Promise<void> {
     }
     const t0 = performance.now();
     const snap = controller.step(dt);
-    renderer.render({ container: stage });
+    host.render();
     lastFrameMs = performance.now() - t0;
     updateHud(hud, controller, lastFrameMs);
     return snap;
   };
 
-  renderer.canvas.addEventListener('pointermove', (ev: PointerEvent) => {
+  host.canvas.addEventListener('pointermove', (ev: PointerEvent) => {
     if (!controller) return;
-    const rect = renderer.canvas.getBoundingClientRect();
+    const rect = host.canvas.getBoundingClientRect();
     const { fx, fy } = pointerToNormalized(ev.clientX, ev.clientY, rect);
     controller.setPointer(fx, fy);
   });
 
-  renderer.canvas.addEventListener('pointerleave', () => {
+  host.canvas.addEventListener('pointerleave', () => {
     if (!controller) return;
     controller.clearPointer();
   });
@@ -199,7 +179,30 @@ async function bootLookDemo(): Promise<void> {
     rafId = requestAnimationFrame(onFrame);
   }
 
+  let disposed = false;
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    window.removeEventListener('pagehide', onPageHide);
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+    if (currentRig) host.unmount(currentRig);
+    currentRig = null;
+    controller = null;
+    currentAssets?.dispose();
+    currentAssets = null;
+    currentDocument = null;
+    host.destroy();
+    host.canvas.remove();
+    document.body.dataset.lookReady = 'false';
+  };
+  const onPageHide = (event: PageTransitionEvent): void => {
+    if (!event.persisted) dispose();
+  };
+  window.addEventListener('pagehide', onPageHide);
   const api: LookDemoApi = {
+    host: hostName,
+    dispose,
     get ready(): boolean {
       return document.body.dataset.lookReady === 'true';
     },
@@ -207,10 +210,10 @@ async function bootLookDemo(): Promise<void> {
       return currentModelUrl;
     },
     get canvasWidth(): number {
-      return renderer.canvas.width;
+      return host.canvas.width;
     },
     get canvasHeight(): number {
-      return renderer.canvas.height;
+      return host.canvas.height;
     },
     get isStaticFallback(): boolean {
       return controller?.isStaticFallback ?? false;
@@ -230,7 +233,7 @@ async function bootLookDemo(): Promise<void> {
     },
     setPointerClient(clientX: number, clientY: number): void {
       if (!controller) return;
-      const rect = renderer.canvas.getBoundingClientRect();
+      const rect = host.canvas.getBoundingClientRect();
       const { fx, fy } = pointerToNormalized(clientX, clientY, rect);
       controller.setPointer(fx, fy);
     },
@@ -264,7 +267,7 @@ async function bootLookDemo(): Promise<void> {
         controller?.setPointer(Math.cos(angle) * 0.85, Math.sin(angle) * 0.85);
         const t0 = performance.now();
         controller?.step(1 / 60);
-        renderer.render({ container: stage });
+        host.render();
         const elapsed = performance.now() - t0;
         samplesMs.push(elapsed);
       }
@@ -279,7 +282,6 @@ async function bootLookDemo(): Promise<void> {
       return { samplesMs, p50Ms, p95Ms, meanMs };
     },
     async loadRig(modelUrl: string) {
-      void currentAssets;
       const ctrl = await mountRig(modelUrl);
       return {
         isStaticFallback: ctrl.isStaticFallback,
@@ -288,15 +290,7 @@ async function bootLookDemo(): Promise<void> {
       };
     },
     countNonEmptyPixels(): number {
-      const gl = (renderer as unknown as { gl: WebGLRenderingContext | WebGL2RenderingContext })
-        .gl;
-      const pixels = new Uint8Array(STAGE_WIDTH * STAGE_HEIGHT * 4);
-      gl.readPixels(0, 0, STAGE_WIDTH, STAGE_HEIGHT, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      let nonEmpty = 0;
-      for (let i = 3; i < pixels.length; i += 4) {
-        if (pixels[i] > 0) nonEmpty++;
-      }
-      return nonEmpty;
+      return host.countNonEmptyPixels();
     },
     inspectPose(
       boneNames = [
@@ -352,151 +346,46 @@ async function bootLookDemo(): Promise<void> {
       return { bones, slotBounds };
     },
     async verifyThreeAdapters(): Promise<ThreeAdapterVerificationReport> {
-      if (!currentAssets || !currentRig || !controller || !controller.dialResult.ok) {
+      if (!currentAssets || !currentDocument || !currentRig || !controller || !controller.dialResult.ok) {
         throw new Error('LookDemo: rig not ready for adapter verification');
       }
-      const dials = controller.dialResult.dials;
-      const initialPos = {
-        x: currentRig.position.x,
-        y: currentRig.position.y,
-        sx: currentRig.scale.x,
-        sy: currentRig.scale.y,
-        rot: currentRig.rotation,
-      };
-
-      const [{ default: Phaser }, { PhaserRig }, THREE, { ThreeRig }] = await Promise.all([
-        import('phaser'),
-        import('@rig-c/phaser'),
-        import('three'),
-        import('@rig-c/three'),
-      ]);
-
-      const phaserHost = document.createElement('div');
-      phaserHost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:256px;height:256px;';
-      document.body.appendChild(phaserHost);
-
-      let activeScene: Phaser.Scene | null = null;
-      const game = await new Promise<Phaser.Game>((resolveGame) => {
-        class ProbeScene extends Phaser.Scene {
-          constructor() {
-            super({ key: 'LookProbeScene' });
-          }
-          create(): void {
-            activeScene = this;
-            resolveGame(this.game);
-          }
-        }
-        new Phaser.Game({
-          type: Phaser.WEBGL,
-          width: 256,
-          height: 256,
-          parent: phaserHost,
-          banner: false,
-          audio: { noAudio: true },
-          scene: [ProbeScene],
-        });
-      });
-
-      const phaserRig = new PhaserRig(activeScene!, currentAssets, { autoUpdate: false });
-      activeScene!.add.existing(phaserRig);
-
-      const threeRenderer = new THREE.WebGLRenderer({ antialias: false });
-      threeRenderer.setSize(256, 256, false);
-      const threeScene = new THREE.Scene();
-      const threeCamera = new THREE.OrthographicCamera(-500, 500, 1200, 0, -1000, 1000);
-      const threeRig = new ThreeRig(currentAssets, { renderer: threeRenderer });
-      threeScene.add(threeRig);
-
-      const testPixiRig = new PixiRig(currentAssets, { ticker: null, autoUpdate: false });
-
-      let cornerFx = 0;
-      let cornerFy = 0;
-      const applyCorner = (bones: import('@rig-c/play').AdjustableBones): void => {
-        bones.bone(dials.yawBone).rotation = dials.yawSign * cornerFx * dials.Y;
-        if (dials.pitchBone) {
-          bones.bone(dials.pitchBone).rotation = dials.pitchSign * cornerFy * dials.P;
-        }
-        if (dials.rollBone) {
-          bones.bone(dials.rollBone).rotation = cornerFx * cornerFy * -dials.R;
-        }
-        if (dials.bodyBone) {
-          bones.bone(dials.bodyBone).rotation = cornerFx * dials.B;
-        }
-        if (dials.eyeXBone) {
-          bones.bone(dials.eyeXBone).rotation = cornerFx * dials.eyeXRange;
-        }
-        if (dials.eyeYBone) {
-          bones.bone(dials.eyeYBone).rotation = cornerFy * dials.eyeYRange;
-        }
-      };
-
-      testPixiRig.adjust = applyCorner;
-      phaserRig.player.adjust = applyCorner;
-      threeRig.player.adjust = applyCorner;
-
-      testPixiRig.play('idle', { loop: true });
-      phaserRig.play('idle', { loop: true });
-      threeRig.play('idle', { loop: true });
-
-      const corners: Array<readonly [number, number]> = [
-        [-1, -1],
-        [1, -1],
-        [1, 1],
-        [-1, 1],
-      ];
-      const probeBones = ['head', 'nose', 'eye_r', 'eye_l', 'iris_r', 'iris_l', 'mouth'];
+      const initialPlacement = host.placement();
+      const probeParent = document.createElement('div');
+      probeParent.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+      document.body.appendChild(probeParent);
+      const probes: Array<{ host: Awaited<ReturnType<typeof createLookHost>>; rig: LookRig; controller: LookController }> = [];
+      const corners: Array<readonly [number, number]> = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
       let maxBoneDiff = 0;
-      let pixiOrderCount = 0;
-      let phaserOrderCount = 0;
-      let threeOrderCount = 0;
-
-      for (const [fx, fy] of corners) {
-        cornerFx = fx;
-        cornerFy = fy;
-        testPixiRig.advance(1 / 60);
-        phaserRig.advance(1 / 60);
-        threeRig.advance(1 / 60);
-        threeRenderer.render(threeScene, threeCamera);
-
-        pixiOrderCount = testPixiRig.drawnFrame().order.length;
-        phaserOrderCount = phaserRig.drawnFrame().order.length;
-        threeOrderCount = threeRig.drawnFrame().order.length;
-
-        for (const bName of probeBones) {
-          const bp = testPixiRig.bone(bName);
-          const bph = phaserRig.bone(bName);
-          const bt = threeRig.bone(bName);
-          const diff = Math.max(
-            Math.abs(bp.x - bph.x),
-            Math.abs(bp.y - bph.y),
-            Math.abs(bp.x - bt.x),
-            Math.abs(bp.y - bt.y),
-          );
-          if (diff > maxBoneDiff) maxBoneDiff = diff;
+      const counts: Record<LookHostName, number> = { pixi: 0, phaser: 0, three: 0 };
+      try {
+        for (const name of ['pixi', 'phaser', 'three'] as const) {
+          const probeHost = await createLookHost(name, probeParent, 256, 256);
+          const rig = probeHost.mount(currentAssets);
+          probes.push({ host: probeHost, rig, controller: new LookController(rig, currentAssets, currentDocument) });
         }
+        for (const [fx, fy] of corners) {
+          for (const probe of probes) {
+            probe.controller.setPointer(fx, fy);
+            for (let i = 0; i < 18; i++) probe.controller.step(1 / 60);
+            probe.host.render();
+            counts[probe.host.name] = probe.rig.drawnFrame().order.length;
+          }
+          for (const name of ['head', 'nose', 'eye_r', 'eye_l', 'iris_r', 'iris_l', 'mouth']) {
+            const reference = probes[0].rig.bone(name);
+            for (const probe of probes.slice(1)) {
+              const bone = probe.rig.bone(name);
+              maxBoneDiff = Math.max(maxBoneDiff, Math.abs(reference.x - bone.x), Math.abs(reference.y - bone.y));
+            }
+          }
+        }
+      } finally {
+        for (const probe of probes) { probe.host.unmount(probe.rig); probe.host.destroy(); }
+        probeParent.remove();
       }
-
-      testPixiRig.destroy();
-      phaserRig.destroy();
-      game.destroy(true);
-      phaserHost.remove();
-      threeRig.destroy();
-      threeRenderer.dispose();
-
-      const cameraFixed =
-        currentRig.position.x === initialPos.x &&
-        currentRig.position.y === initialPos.y &&
-        currentRig.scale.x === initialPos.sx &&
-        currentRig.scale.y === initialPos.sy &&
-        currentRig.rotation === initialPos.rot;
-
       return {
-        cornersChecked: corners.length,
-        maxBoneDiff,
-        pixiOrderCount,
-        phaserOrderCount,
-        threeOrderCount,
-        cameraFixed,
+        cornersChecked: corners.length, maxBoneDiff,
+        pixiOrderCount: counts.pixi, phaserOrderCount: counts.phaser, threeOrderCount: counts.three,
+        cameraFixed: JSON.stringify(initialPlacement) === JSON.stringify(host.placement()),
       };
     },
   };
