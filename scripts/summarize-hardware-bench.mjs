@@ -17,7 +17,12 @@ for(const root of roots){
   const r=records[phase];if(r.phase!==phase||r.status!=='passed'||r.rows.length!==4)throw Error('HARDWARE_SUMMARY_PHASE: '+phase);
   if(!r.gpu.renderer||/SwiftShader|software|llvmpipe/i.test(r.gpu.renderer))throw Error('HARDWARE_SUMMARY_GPU');
   if(!r.checks.drawCallMutants.pass)throw Error('HARDWARE_SUMMARY_DRAW_MUTANTS');
-  for(const s of ['spineboy','raptor'])for(const c of r.checks[s])if(!c.positive.pass||c.mutant.pass)throw Error('HARDWARE_SUMMARY_ORACLE');
+  for(const skeleton of ['spineboy','raptor']){
+   const controls=r.checks[skeleton];
+   const expectedArms=['rig-c-pixi','rig-c-pixi-compare'];
+   if(!Array.isArray(controls)||controls.length!==expectedArms.length||expectedArms.some(arm=>controls.filter(c=>c?.arm===arm).length!==1)||controls.some(c=>typeof c?.positive?.pass!=='boolean'||typeof c?.mutant?.pass!=='boolean'))throw Error(`HARDWARE_SUMMARY_CONTROLS: ${phase} ${skeleton} needs one positive and mutant outcome per expected arm`);
+   for(const control of controls)if(!control.positive.pass||control.mutant.pass)throw Error('HARDWARE_SUMMARY_ORACLE');
+  }
   const workloads=r.rows.map(row=>`${row.skeleton}/${row.instances}`);
   if(JSON.stringify(workloads)!==JSON.stringify(['spineboy/1','spineboy/100','raptor/1','raptor/100']))throw Error('HARDWARE_SUMMARY_WORKLOADS');
   for(const row of r.rows){
