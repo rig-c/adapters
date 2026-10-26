@@ -49,3 +49,42 @@ per-run `p50` series in order (`runP50sMs`) alongside per-pair differences in
 `--compare-bundle <path>` to measure a candidate `@rig-c/play` package/bundle
 or a module exporting `{ loadModel, PixiRig }` (`rig-c-pixi-compare`)
 AB-interleaved against the base `rig-c-pixi` arm in one invocation.
+
+## Same-frame paired mode
+
+`bun run bench -- --same-frame --json` selects `same-frame-ab-v1`. This is
+separate from the two historical timing protocols; combining it with
+`--timing-protocol` or `--check-repro` refuses by name. `--compare-bundle` still
+selects base/candidate; otherwise the official and rig-c arms share one canvas.
+The canvas is 1800 × 640: each arm retains the original 900 × 640 workload,
+instance count, placement and animation phase. This doubles the total canvas
+workload relative to a single-arm run. AB/BA alternates every measured frame.
+Each arm submits separately with the other half retained. Correctness compares
+each shared half to its isolated rendering at 0, 0.35 and 0.7 seconds under the
+existing limits, after the existing official-runtime cross-arm oracle and
+negative controls have passed.
+
+Per-frame raw samples retain pose, submit and combined CPU milliseconds for
+each arm, draw counts, order, and CPU wall time through one final `gl.finish()`.
+There is no per-arm finish. CPU submit includes query instrumentation and driver
+back-pressure. Paired differences are signed B minus A; p50/p95, min/max and
+p95-minus-p05 spread are reported. No claim of exact noise cancellation follows
+from sharing a frame.
+
+Where WebGL2 exposes `EXT_disjoint_timer_query_webgl2`, separate non-overlapping
+queries wrap the arms' draws. Results are read asynchronously after availability;
+any disjoint observation or five-second result timeout discards all arm GPU
+samples for that run. Without the extension, GPU samples and paired GPU summary
+are null with a reason. Whole-frame completion remains CPU wall time through GPU
+completion, not GPU-only execution time. M4/ANGLE Metal extension availability
+must be recorded by an actual target invocation, not inferred from another GPU.
+
+`compareSameFrameReports(first, second)` compares the p50 of raw CPU paired
+differences pooled across runs for each workload in two independent reports.
+The relative spread is `abs(second - first) / abs(first)` with a fixed 5% limit,
+no denominator floor; zero versus zero passes, zero versus nonzero is undefined
+and cannot pass. Near-zero differences can be unstable by this definition and
+must be reported honestly. The CLI does not turn internal batches into two
+independent invocations. Raw GPU paired differences are reported separately;
+CPU and GPU differences must not be mixed. Target repeatability is a separate
+quiet-window measurement, not established by browser correctness tests.

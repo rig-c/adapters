@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { parseTimingProtocol, parseTimingProtocolArgs, assertTimingProtocolRows, timingProtocolDescription } from './timing-protocol.ts';
 import {
   BENCH_CHROMIUM_ARGS,
+  compareSameFrameReports,
+  formatSameFrameMarkdown,
   computePairedFrameTable,
   evaluateBar1DrawCalls,
   evaluatePairedReproducibility,
@@ -409,11 +411,14 @@ test('--compare-bundle CLI parsing, bundle preparation, refusals, and browser AB
       }
     }
     await bench.disposePreparedStage();
-    return { invalidBundleError, correctnessPass: correctness.pass, batches };
+    const sameFrame = await bench.runSameFramePair('spineboy', arms, 1, { warmupFrames: 0, measuredFrames: 2 });
+    return { invalidBundleError, correctnessPass: correctness.pass, batches, sameFrame };
   }, { code: playCompare.browserCode, label: playCompare.sourcePath });
 
   expect(browserRes.invalidBundleError).toContain('BENCH_COMPARE_BUNDLE: "bad-inline" must export functions { loadModel, PixiRig }');
   expect(browserRes.correctnessPass).toBe(true);
+  expect(browserRes.sameFrame.halves.every(h => h.pass)).toBe(true);
+  expect(browserRes.sameFrame.drawCallsPass).toBe(true);
   expect(browserRes.batches.map((b) => b.arm)).toEqual([
     'rig-c-pixi',
     'rig-c-pixi-compare',
@@ -422,4 +427,206 @@ test('--compare-bundle CLI parsing, bundle preparation, refusals, and browser AB
   ]);
   const bar1 = evaluateBar1DrawCalls(browserRes.batches, ['spineboy']);
   expect(bar1.pass).toBe(true);
+});
+
+test('same-frame shared canvas correctness, alternating order and one-arm CPU control', async ({ page }) => {
+  await page.goto('/bench/index.html');
+  await page.waitForFunction(() => Boolean(window.__rigBench));
+  const result = await page.evaluate(async () => {
+    const bench = window.__rigBench;
+    const arms = ['spine-pixi-v8', 'rig-c-pixi'];
+    const results = [];
+    for (const skeleton of ['spineboy', 'raptor']) {
+      const baseline = await bench.runSameFramePair(skeleton, arms, 1, { warmupFrames: 2, measuredFrames: 6 });
+      const planted = await bench.runSameFramePair(skeleton, arms, 1, { warmupFrames: 2, measuredFrames: 6, busyArm: arms[1], busyMs: 12 });
+      results.push({ baseline, planted });
+    }
+    return results;
+  });
+  for (const { baseline, planted } of result) {
+    expect(baseline.halves).toHaveLength(6);
+    expect(baseline.halves.every(h => h.pass)).toBe(true);
+    expect(baseline.drawCallsPass).toBe(true);
+    expect(planted.drawCallsPass).toBe(true);
+    for (let f = 0; f < baseline.frames.length; f++) {
+      expect(baseline.frames[f].order).toEqual(f % 2 ? [...baseline.arms].reverse() : baseline.arms);
+    }
+    const p50 = xs => [...xs].sort((a,b) => a-b)[Math.floor(xs.length / 2)];
+    const armShift = [0, 1].map(i => p50(planted.frames.map(f => f.arms[i].submitMs)) - p50(baseline.frames.map(f => f.arms[i].submitMs)));
+    console.log('SAME_FRAME_CONTROL', JSON.stringify({ skeleton: baseline.skeleton, armSubmitShiftMs: armShift, halves: baseline.halves, gpuStatus: baseline.gpuStatus }));
+    expect(armShift[1]).toBeGreaterThan(10);
+    expect(Math.abs(armShift[0])).toBeLessThan(4);
+    expect(planted.cpuPairedDifference.p50Ms - baseline.cpuPairedDifference.p50Ms).toBeGreaterThan(8);
+    if (baseline.gpuStatus === 'available') {
+      expect(baseline.gpuSamplesMs.every(s => s.every(n => Number.isFinite(n) && n >= 0))).toBe(true);
+    } else {
+      expect(baseline.gpuPairedDifference).toBeNull();
+      expect(baseline.gpuSamplesMs.every(s => s.every(n => n === null))).toBe(true);
+    }
+  }
+});
+
+test('same-frame absent timer query explicitly retains whole completion only', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = WebGL2RenderingContext.prototype.getExtension;
+    WebGL2RenderingContext.prototype.getExtension = function (name) {
+      return name === 'EXT_disjoint_timer_query_webgl2' ? null : original.call(this, name);
+    };
+  });
+  await page.goto('/bench/index.html');
+  await page.waitForFunction(() => Boolean(window.__rigBench));
+  const row = await page.evaluate(() => window.__rigBench.runSameFramePair('spineboy', ['spine-pixi-v8','rig-c-pixi'], 1, { warmupFrames: 0, measuredFrames: 2 }));
+  expect(row.gpuStatus).toContain('not exposed');
+  expect(row.gpuPairedDifference).toBeNull();
+  expect(row.gpuSamplesMs).toEqual([[null,null],[null,null]]);
+  expect(row.wholeFrameCompletion.p50Ms).toBeGreaterThan(0);
+});
+
+test('same-frame half-clear mutant fails the same pixel gate', async ({ page }) => {
+  await page.route('**/bench/main.ts', async route => {
+    const response = await route.fetch();
+    const body = await response.text();
+    expect(body).toContain('clear: false, transform: offsets[index]');
+    await route.fulfill({ response, body: body.replace('clear: false, transform: offsets[index]', 'clear: true, transform: offsets[index]').replace('gl.enable(gl.SCISSOR_TEST);', 'gl.disable(gl.SCISSOR_TEST);') });
+  });
+  await page.goto('/bench/index.html');
+  await page.waitForFunction(() => Boolean(window.__rigBench));
+  await expect(page.evaluate(() => window.__rigBench.runSameFramePair('spineboy', ['spine-pixi-v8','rig-c-pixi'], 1, { warmupFrames: 0, measuredFrames: 2 }))).rejects.toThrow(/BENCH_SAME_FRAME_PIXELS/);
+});
+
+
+test('same-frame independent spread uses signed differences and no floor', () => {
+  const report = (delta) => ({ mode: 'same-frame-ab-v1', arms: ['A','B'], assets: {}, machine: {}, rigcVersion: 'test', spineRuntimesRef: 'test', pixiVersion: 'test', playVersion: 'test', compareBundle: null, rows: [{ skeleton: 'spineboy', instances: 1, arms: ['A', 'B'], frames: [{ arms: [{cpuMs: 10}, {cpuMs: 10 + delta}] }] }] });
+  expect(compareSameFrameReports(report(1), report(1.04))[0].pass).toBe(true);
+  expect(compareSameFrameReports(report(1), report(1.06))[0].pass).toBe(false);
+  expect(() => compareSameFrameReports(report(1), { ...report(1), playVersion: 'changed' })).toThrow(/provenance playVersion/);
+  expect(compareSameFrameReports(report(-1), report(-1.04))[0].pass).toBe(true);
+  expect(compareSameFrameReports(report(0), report(0))[0].pass).toBe(true);
+  expect(compareSameFrameReports(report(0), report(0.001))[0].pass).toBe(false);
+  expect(() => compareSameFrameReports(report(1), { ...report(1), rows: [] })).toThrow(/empty/);
+});
+
+
+for (const queryMode of ['available', 'disjoint', 'timeout']) {
+  test(`same-frame controlled GPU query lifecycle: ${queryMode}`, async ({ page }) => {
+    await page.addInitScript(mode => {
+      const p = WebGL2RenderingContext.prototype;
+      const originalExtension = p.getExtension;
+      const originalParameter = p.getParameter;
+      const target = 0x88bf, disjoint = 0x8fbb;
+      p.getExtension = function (name) {
+        return name === 'EXT_disjoint_timer_query_webgl2' ? { TIME_ELAPSED_EXT: target, GPU_DISJOINT_EXT: disjoint } : originalExtension.call(this, name);
+      };
+      p.getParameter = function (name) { return name === disjoint ? mode === 'disjoint' : originalParameter.call(this, name); };
+      const create = p.createQuery, begin = p.beginQuery, end = p.endQuery, get = p.getQueryParameter, del = p.deleteQuery;
+      const fake = new Set();
+      p.createQuery = function () { const q = { fake: true }; fake.add(q); return q; };
+      p.beginQuery = function (kind, q) { if (!fake.has(q)) return begin.call(this, kind, q); };
+      p.endQuery = function (kind) { if (kind !== target) return end.call(this, kind); };
+      p.getQueryParameter = function (q, kind) { return fake.has(q) ? (kind === this.QUERY_RESULT_AVAILABLE ? mode !== 'timeout' : 1000000) : get.call(this, q, kind); };
+      p.deleteQuery = function (q) { if (fake.has(q)) { fake.delete(q); return; } return del.call(this,q); };
+      window.__fakeQueryCount = () => fake.size;
+      // The replacement returns simulated values solely to exercise the reader.
+      void create;
+    }, queryMode);
+    if (queryMode === 'timeout') await page.route('**/bench/main.ts', async route => {
+      const response = await route.fetch();
+      const body = await response.text();
+      expect(body).toMatch(/performance\.now\(\) \+ (5000|5e3)/);
+      await route.fulfill({ response, body: body.replace(/performance\.now\(\) \+ (5000|5e3)/, 'performance.now() + 10') });
+    });
+    await page.goto('/bench/index.html');
+    await page.waitForFunction(() => Boolean(window.__rigBench));
+    const { row, pending } = await page.evaluate(async () => {
+      const row = await window.__rigBench.runSameFramePair('spineboy', ['spine-pixi-v8','rig-c-pixi'], 1, { warmupFrames: 0, measuredFrames: 2 });
+      return { row, pending: window.__fakeQueryCount() };
+    });
+    expect(pending).toBe(0);
+    if (queryMode === 'available') {
+      expect(row.gpuStatus).toBe('available');
+      expect(row.gpuSamplesMs).toEqual([[1,1],[1,1]]);
+      expect(row.gpuPairedDifference.p50Ms).toBe(0);
+    } else {
+      expect(row.gpuStatus).toContain(queryMode);
+      expect(row.gpuSamplesMs).toEqual([[null,null],[null,null]]);
+      expect(row.gpuPairedDifference).toBeNull();
+    }
+  });
+}
+
+for (const mutant of ['none', 'missing-finish', 'fixed-order']) {
+  test(`same-frame actual completion/order trace ${mutant}`, async ({ page }) => {
+    if (mutant !== 'none') await page.route('**/bench/main.ts', async route => {
+      const response = await route.fetch();
+      let body = await response.text();
+      if (mutant === 'missing-finish') {
+        expect(body).toContain('gl.finish();\n      const end');
+        body = body.replace('gl.finish();\n      const end', '/* removed */\n      const end');
+      } else {
+        expect(body).toContain('f % 2 === 0');
+        body = body.replace('f % 2 === 0', 'true');
+      }
+      await route.fulfill({ response, body });
+    });
+    await page.addInitScript(() => {
+      window.__sameEvents = [];
+      const now = performance.now.bind(performance);
+      Object.defineProperty(performance, 'now', { value() {
+        const caller = new Error().stack?.split('\n')[2] ?? '';
+        if (/\brunSameFramePair\b/.test(caller)) window.__sameEvents.push('now');
+        return now();
+      } });
+      const finish = WebGL2RenderingContext.prototype.finish;
+      WebGL2RenderingContext.prototype.finish = function () { window.__sameEvents.push('finish'); return finish.call(this); };
+      const get = WebGL2RenderingContext.prototype.getExtension;
+      WebGL2RenderingContext.prototype.getExtension = function (name) { return name === 'EXT_disjoint_timer_query_webgl2' ? null : get.call(this, name); };
+    });
+    await page.goto('/bench/index.html');
+    await page.waitForFunction(() => Boolean(window.__rigBench));
+    const { row, events } = await page.evaluate(async () => {
+      const row = await window.__rigBench.runSameFramePair('spineboy', ['spine-pixi-v8','rig-c-pixi'], 1, { warmupFrames: 0, measuredFrames: 2 });
+      return { row, events: window.__sameEvents };
+    });
+    const check = () => {
+      expect(row.frames.map(f => f.order)).toEqual([row.arms, [...row.arms].reverse()]);
+      const clocks = events.flatMap((e, i) => e === 'now' ? [i] : []);
+      expect(clocks).toHaveLength(16);
+      for (let frame = 0; frame < 2; frame++) {
+        const start = clocks[frame * 8], end = clocks[frame * 8 + 7];
+        expect(events.slice(start + 1, end).filter(e => e === 'finish')).toHaveLength(1);
+        expect(events[end - 1]).toBe('finish');
+      }
+    };
+    if (mutant === 'none') check(); else expect(check).toThrow();
+  });
+}
+
+
+test('same-frame CLI collection route preserves oracle and report provenance', async () => {
+  const child = spawnSync('bun', ['-e', `import { runBenchmarkSuite } from './scripts/bench.mjs'; console.log(JSON.stringify(await runBenchmarkSuite({ sameFrame: true, skeletons: ['spineboy'], instanceCounts: [1], runs: 1, warmupFrames: 0, measuredFrames: 2 })));`], { encoding: 'utf8', timeout: 45000 });
+  expect(child.status, child.stderr).toBe(0);
+  const report = JSON.parse(child.stdout);
+  expect(report.mode).toBe('same-frame-ab-v1');
+  expect(report.rows).toHaveLength(1);
+  expect(report.correctness.spineboy.positive.pass).toBe(true);
+  expect(report.correctness.spineboy.mutant.pass).toBe(false);
+  expect(report.drawCallMutants.pass).toBe(true);
+  expect(report.rows[0].halves.every(h => h.pass)).toBe(true);
+  expect(report.machine.chromiumArgs).toEqual([...BENCH_CHROMIUM_ARGS]);
+  expect(formatSameFrameMarkdown(report)).toContain('Whole completion');
+  for (const args of [['--same-frame', '--check-repro'], ['--same-frame', '--timing-protocol', 'cpu-submit-v1']]) {
+    const cli = spawnSync('bun', ['scripts/bench.mjs', ...args], { encoding: 'utf8' });
+    expect(cli.status).toBe(1);
+    expect(cli.stderr).toContain('BENCH_SAME_FRAME');
+  }
+});
+
+test('same-frame equal-count shared workload correctness at 10/50/100 instances', async ({ page }) => {
+  await page.goto('/bench/index.html');
+  await page.waitForFunction(() => Boolean(window.__rigBench));
+  for (const skeleton of ['spineboy','raptor']) for (const instances of [10,50,100]) {
+    const row = await page.evaluate(({ skeleton, instances }) => window.__rigBench.runSameFramePair(skeleton, ['spine-pixi-v8','rig-c-pixi'], instances, { warmupFrames: 0, measuredFrames: 2 }), { skeleton, instances });
+    expect(row.halves.every(h => h.pass)).toBe(true);
+    expect(row.drawCallsPass).toBe(true);
+  }
 });

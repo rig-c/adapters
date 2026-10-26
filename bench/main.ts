@@ -2,7 +2,7 @@ import { DEFAULT_TIMING_PROTOCOL, parseTimingProtocol, type TimingProtocol } fro
 import { loadModel, type ModelAssets, type PosedFrame } from '@rig-c/play';
 import { PixiRig } from '@rig-c/pixi';
 import * as PixiNamespace from 'pixi.js';
-import { Container, ImageSource, WebGLRenderer } from 'pixi.js';
+import { Container, ImageSource, Matrix, WebGLRenderer } from 'pixi.js';
 import {
   AtlasAttachmentLoader,
   Physics,
@@ -751,7 +751,7 @@ interface PreparedStage {
   stage: Container;
   resetPhase(): void;
   poseAll(dt: number): void;
-  drawAll(): void;
+  drawAll(options?: { clear?: boolean; transform?: Matrix }): void;
   dispose(): void;
 }
 
@@ -851,8 +851,8 @@ export async function prepareBenchmarkStage(
         spines[i].update(stepDt);
       }
     };
-    const drawAll = (): void => {
-      renderer.render({ container: stage });
+    const drawAll = (options: { clear?: boolean; transform?: Matrix } = {}): void => {
+      renderer.render({ container: stage, ...options });
     };
     for (let f = 0; f < warmupFrames; f++) {
       poseAll(dt);
@@ -928,11 +928,11 @@ export async function prepareBenchmarkStage(
       posedFrames[i] = r.player.posedFrame();
     }
   };
-  const drawAll = (): void => {
+  const drawAll = (options: { clear?: boolean; transform?: Matrix } = {}): void => {
     for (let i = 0; i < rigs.length; i++) {
       rigs[i].renderer.render(posedFrames[i]);
     }
-    renderer.render({ container: stage });
+    renderer.render({ container: stage, ...options });
   };
   for (let f = 0; f < warmupFrames; f++) {
     poseAll(dt);
@@ -1267,6 +1267,169 @@ export async function checkDrawCallMutants(baseUrl = '/bench'): Promise<DrawCall
   };
 }
 
+// This protocol shares one completion boundary. Arm samples are CPU submission,
+// never a partition of the blocking whole-frame completion time.
+export async function runSameFramePair(
+  skeleton: BenchSkeleton,
+  arms: [BenchArm, BenchArm],
+  instances: number,
+  options: { warmupFrames?: number; measuredFrames?: number; busyArm?: BenchArm; busyMs?: number } = {},
+) {
+  const warmup = options.warmupFrames ?? 60;
+  const count = options.measuredFrames ?? 76;
+  if (arms[0] === arms[1] || !arms.every(a => ['spine-pixi-v8', 'rig-c-pixi', 'rig-c-pixi-compare'].includes(a))) {
+    throw new Error(`BENCH_SAME_FRAME: expected two distinct known arms, found ${arms}`);
+  }
+  for (const [name, value, minimum] of [['instances', instances, 1], ['warmupFrames', warmup, 0], ['measuredFrames', count, 1]] as const) {
+    if (!Number.isInteger(value) || value < minimum) throw new Error(`BENCH_SAME_FRAME: ${name} found ${value}, needed integer >= ${minimum}`);
+  }
+  if (options.busyArm && !arms.includes(options.busyArm)) throw new Error(`BENCH_SAME_FRAME: busyArm ${options.busyArm} absent from pair`);
+  const busyMs = options.busyMs ?? 0;
+  if (!Number.isFinite(busyMs) || busyMs < 0) throw new Error(`BENCH_SAME_FRAME: busyMs found ${busyMs}, needed finite >= 0`);
+  await disposePreparedStage();
+  const { renderer, counters } = await getRenderer();
+  const gl = renderer.gl;
+  const scene = new Container();
+  const prepared: PreparedStage[] = [];
+  const pending: Array<{ query: WebGLQuery; frame: number; arm: number }> = [];
+  const gl2 = gl instanceof WebGL2RenderingContext ? gl : null;
+  const ext = gl2?.getExtension('EXT_disjoint_timer_query_webgl2') as {
+    TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number;
+  } | null;
+  let gpuStatus = ext ? 'available' : 'unavailable: EXT_disjoint_timer_query_webgl2 not exposed';
+  const gpuSamples: Array<[number | null, number | null]> = [];
+  const rows: Array<{
+    frame: number; order: BenchArm[];
+    arms: Array<{ arm: BenchArm; poseMs: number; submitMs: number; cpuMs: number; drawCalls: number }>;
+    wholeFrameCompletionMs: number;
+  }> = [];
+  const offsets = [new Matrix(), new Matrix(1, 0, 0, 1, CANVAS_WIDTH, 0)];
+  const drawArm = (index: number) => {
+    // Scissor confines even oversized geometry to its half; both renders retain
+    // the other half. Pixi resets GL state at the start of the next frame.
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(index * CANVAS_WIDTH, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    prepared[index].drawAll({ clear: false, transform: offsets[index] });
+    gl.disable(gl.SCISSOR_TEST);
+  };
+  const clear = () => {
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+  };
+  const halves: Array<{ time: number; arm: BenchArm; pass: boolean; wholeCanvasMae: number; contentUnionMae: number; badRatio: number; contentMismatch: number }> = [];
+  try {
+    for (const arm of arms) {
+      await prepareBenchmarkStage(skeleton, arm, instances, 0, '/bench', { keepPrepared: true });
+      const stage = preparedStages.get(arm)!;
+      prepared.push(stage);
+      scene.addChild(stage.stage);
+    }
+    renderer.resize(CANVAS_WIDTH * 2, CANVAS_HEIGHT);
+    // Compare each shared half to its isolated arm at the same phase and
+    // placement. The existing cross-runtime oracle also runs before CLI sampling.
+    for (const time of [0, 0.35, 0.7]) {
+      for (const stage of prepared) { stage.resetPhase(); stage.poseAll(time); }
+      clear();
+      drawArm(0); drawArm(1); gl.finish();
+      const combined = readPixelsTopDown(gl, CANVAS_WIDTH * 2, CANVAS_HEIGHT);
+      for (let i = 0; i < 2; i++) {
+        const half = new Uint8Array(CANVAS_WIDTH * CANVAS_HEIGHT * 4);
+        for (let y = 0; y < CANVAS_HEIGHT; y++) {
+          const start = (y * CANVAS_WIDTH * 2 + i * CANVAS_WIDTH) * 4;
+          half.set(combined.subarray(start, start + CANVAS_WIDTH * 4), y * CANVAS_WIDTH * 4);
+        }
+        clear(); drawArm(i); gl.finish();
+        const isolated = readPixelsTopDown(gl, CANVAS_WIDTH * 2, CANVAS_HEIGHT);
+        const reference = new Uint8Array(half.length);
+        for (let y = 0; y < CANVAS_HEIGHT; y++) {
+          const start = (y * CANVAS_WIDTH * 2 + i * CANVAS_WIDTH) * 4;
+          reference.set(isolated.subarray(start, start + CANVAS_WIDTH * 4), y * CANVAS_WIDTH * 4);
+        }
+        const diff = comparePixelBuffers(half, reference, CANVAS_WIDTH, CANVAS_HEIGHT);
+        const pass = diff.contentUnion > 0 && diff.wholeCanvasMae <= WHOLE_CANVAS_MAE_LIMIT &&
+          diff.contentUnionMae <= CONTENT_UNION_MAE_LIMIT && diff.badRatio <= BAD_RATIO_LIMIT && diff.contentMismatch <= CONTENT_MISMATCH_LIMIT;
+        halves.push({ time, arm: arms[i], pass, wholeCanvasMae: diff.wholeCanvasMae, contentUnionMae: diff.contentUnionMae, badRatio: diff.badRatio, contentMismatch: diff.contentMismatch });
+      }
+    }
+    if (!halves.every(h => h.pass)) throw new Error(`BENCH_SAME_FRAME_PIXELS: ${JSON.stringify(halves)}`);
+    for (const stage of prepared) stage.resetPhase();
+    for (let f = -warmup; f < count; f++) {
+      const order = (f % 2 === 0) ? [0, 1] : [1, 0];
+      if (f === 0) gl.finish();
+      const frameStart = performance.now();
+      clear();
+      const samples = new Array<{ arm: BenchArm; poseMs: number; submitMs: number; cpuMs: number; drawCalls: number }>(2);
+      for (const index of order) {
+        counters.reset();
+        const t0 = performance.now();
+        prepared[index].poseAll(1 / 60);
+        const t1 = performance.now();
+        if (options.busyArm === arms[index]) {
+          const until = performance.now() + busyMs;
+          while (performance.now() < until) { /* deliberate per-arm CPU negative control */ }
+        }
+        let query: WebGLQuery | null = null;
+        if (f >= 0 && gl2 && ext) {
+          query = gl2.createQuery();
+          if (!query) throw new Error('BENCH_SAME_FRAME_GPU: createQuery failed');
+          gl2.beginQuery(ext.TIME_ELAPSED_EXT, query);
+        }
+        drawArm(index);
+        if (query && gl2 && ext) {
+          gl2.endQuery(ext.TIME_ELAPSED_EXT);
+          pending.push({ query, frame: f, arm: index });
+        }
+        const t2 = performance.now();
+        samples[index] = { arm: arms[index], poseMs: t1 - t0, submitMs: t2 - t1, cpuMs: t2 - t0, drawCalls: counters.drawCalls };
+      }
+      gl.finish();
+      const end = performance.now();
+      if (f >= 0) {
+        rows.push({ frame: f, order: order.map(i => arms[i]), arms: samples, wholeFrameCompletionMs: end - frameStart });
+        gpuSamples.push([null, null]);
+      }
+    }
+    if (gl2 && ext) {
+      // Query availability can change only after yielding back to the browser.
+      const deadline = performance.now() + 5000;
+      while (pending.length > 0) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        if (gl2.getParameter(ext.GPU_DISJOINT_EXT)) {
+          gpuStatus = 'unavailable: GPU disjoint; all arm GPU samples discarded';
+          break;
+        }
+        for (let i = pending.length - 1; i >= 0; i--) {
+          const entry = pending[i];
+          if (!gl2.getQueryParameter(entry.query, gl2.QUERY_RESULT_AVAILABLE)) continue;
+          gpuSamples[entry.frame][entry.arm] = Number(gl2.getQueryParameter(entry.query, gl2.QUERY_RESULT)) / 1e6;
+          gl2.deleteQuery(entry.query); pending.splice(i, 1);
+        }
+        if (performance.now() > deadline) { gpuStatus = 'unavailable: query result timeout; all arm GPU samples discarded'; break; }
+      }
+      if (gpuStatus !== 'available') for (const sample of gpuSamples) sample.fill(null);
+    }
+    const deltas = rows.map(row => row.arms[1].cpuMs - row.arms[0].cpuMs);
+    const summary = (values: number[]) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      return { p50Ms: quantile(sorted, 0.5), p95Ms: quantile(sorted, 0.95), minMs: sorted[0], maxMs: sorted.at(-1), spreadMs: quantile(sorted, 0.95) - quantile(sorted, 0.05) };
+    };
+    return {
+      mode: 'same-frame-ab-v1', skeleton, instances, arms, warmupFrames: warmup, measuredFrames: count,
+      gpuStatus, gpuSamplesMs: gpuSamples, halves, frames: rows,
+      cpuPairedDifference: summary(deltas),
+      gpuPairedDifference: gpuStatus === 'available' ? summary(gpuSamples.map(s => s[1]! - s[0]!)) : null,
+      wholeFrameCompletion: summary(rows.map(row => row.wholeFrameCompletionMs)),
+      drawCallsPass: rows.every(row => row.arms.every(a => a.drawCalls > 0 && a.drawCalls <= (skeleton === 'spineboy' ? 1 : 3))),
+    };
+  } finally {
+    for (const entry of pending) gl2?.deleteQuery(entry.query);
+    scene.removeChildren(); scene.destroy();
+    await disposePreparedStage();
+    renderer.resize(CANVAS_WIDTH, CANVAS_HEIGHT);
+  }
+}
+
 export async function disposePreparedStage(): Promise<void> {
   for (const existing of preparedStages.values()) {
     existing.dispose();
@@ -1284,6 +1447,7 @@ export async function disposePreparedStage(): Promise<void> {
 }
 
 export interface RigBenchHarness {
+  runSameFramePair: typeof runSameFramePair;
   getGpuInfo: typeof getGpuInfo;
   verifyAssets: typeof verifyAssets;
   registerCompareBundle: typeof registerCompareBundle;
@@ -1305,6 +1469,7 @@ declare global {
 }
 
 window.__rigBench = {
+  runSameFramePair,
   getGpuInfo,
   verifyAssets,
   registerCompareBundle,

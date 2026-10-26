@@ -805,6 +805,33 @@ export async function runBenchmarkSuite(options = {}) {
         : { positive, mutant };
     }
 
+    if (options.sameFrame) {
+      const drawCallMutants = await page.evaluate(() => window.__rigBench.checkDrawCallMutants());
+      if (!drawCallMutants.pass) throw new Error('BENCH_MUTANT_SURVIVED: draw-call controls');
+      const rows = [];
+      for (const skeleton of skeletons) for (const instances of instanceCounts) {
+        for (let run = 0; run < runs; run++) {
+          const row = await page.evaluate(
+            ({ skeleton, arms, instances, warmupFrames, measuredFrames }) =>
+              window.__rigBench.runSameFramePair(skeleton, arms, instances, { warmupFrames, measuredFrames }),
+            { skeleton, arms, instances, warmupFrames, measuredFrames },
+          );
+          if (!row.drawCallsPass) throw new Error(`BENCH_SAME_FRAME_DRAW_CALLS: ${skeleton} ${instances}x`);
+          rows.push({ run, ...row });
+        }
+      }
+      return {
+        mode: 'same-frame-ab-v1', arms, rows, correctness, drawCallMutants,
+        machine: { platform: platform(), release: release(), arch: arch(), browser: browser.version(), ...gpu, chromiumArgs: [...BENCH_CHROMIUM_ARGS] },
+        assets: manifest.skeletons, rigcVersion: manifest.rigcTag, spineRuntimesRef: manifest.spineRuntimesRef,
+        pixiVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/pixi.js/package.json'), 'utf8')).version,
+        playVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/@rig-c/play/package.json'), 'utf8')).version,
+        compareBundle: compareBundleInfo ? { sourcePath: compareBundleInfo.sourcePath, sha256: compareBundleInfo.sha256, mode: compareBundleInfo.mode } : null,
+        hygiene: { diskRefusalMutant, browserRefusalMutant },
+        repeatability: 'not measured: compare two independent invocations; no within-command substitute',
+      };
+    }
+
     // Pre-warm V8 TurboFan JIT and WebGL batcher buffer pools up to max instance count
     const maxWarmInstances = Math.max(...instanceCounts);
     for (const skeleton of skeletons) {
@@ -1081,6 +1108,53 @@ export async function runBenchmarkSuite(options = {}) {
   }
 }
 
+export function formatSameFrameMarkdown(report) {
+  const lines = ['# Same-frame AB benchmark', '',
+    'Protocol: `same-frame-ab-v1`, one 1800 × 640 canvas, 900 × 640 per arm; AB/BA alternates every frame. CPU submit includes timer instrumentation and driver back-pressure. GPU query values measure execution; whole-frame completion is CPU wall time through one gl.finish(), never GPU-only time.', '',
+    `Machine: ${JSON.stringify(report.machine)}`, '',
+    '| Rig | Instances | Run | CPU B−A p50 ms | CPU B−A p95 ms | p95−p05 ms | Whole completion p50 ms | GPU queries |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |'];
+  for (const row of report.rows) lines.push(`| ${row.skeleton} | ${row.instances} | ${row.run} | ${row.cpuPairedDifference.p50Ms} | ${row.cpuPairedDifference.p95Ms} | ${row.cpuPairedDifference.spreadMs} | ${row.wholeFrameCompletion.p50Ms} | ${row.gpuStatus} |`);
+  lines.push('', `Repeatability: ${report.repeatability}.`, '', 'Raw per-frame CPU/GPU samples, half-image gates and dependency/fixture provenance are available with --json.');
+  return lines.join('\n');
+}
+
+// No floor: near-zero signed differences can be intrinsically unstable. Exact
+// zero against zero is zero spread; zero against nonzero cannot pass.
+export function compareSameFrameReports(first, second, limit = 0.05) {
+  if (first.mode !== 'same-frame-ab-v1' || second.mode !== first.mode) throw new Error('BENCH_SAME_FRAME: report mode mismatch');
+  for (const field of ['arms', 'assets', 'machine', 'rigcVersion', 'spineRuntimesRef', 'pixiVersion', 'playVersion', 'compareBundle']) {
+    if (first[field] === undefined || second[field] === undefined || JSON.stringify(first[field]) !== JSON.stringify(second[field])) {
+      throw new Error(`BENCH_SAME_FRAME: missing or mismatched provenance ${field}`);
+    }
+  }
+  const group = report => {
+    const groups = new Map();
+    for (const row of report.rows) {
+      if (!row.frames?.length || row.frames.some(f => f.arms?.length !== 2 || f.arms.some(a => !Number.isFinite(a.cpuMs) || a.cpuMs < 0))) throw new Error('BENCH_SAME_FRAME: invalid CPU samples');
+      const key = JSON.stringify([row.skeleton, row.instances, row.arms, row.warmupFrames, row.measuredFrames]);
+      const list = groups.get(key) ?? [];
+      list.push(...row.frames.map(f => f.arms[1].cpuMs - f.arms[0].cpuMs));
+      groups.set(key, list);
+    }
+    if (!groups.size) throw new Error('BENCH_SAME_FRAME: empty report rows');
+    return groups;
+  };
+  const a = group(first), b = group(second);
+  if (a.size !== b.size || [...a.keys()].some(k => !b.has(k))) throw new Error('BENCH_SAME_FRAME: workload mismatch');
+  return [...a].map(([key, values]) => {
+    const rawMedian = samples => {
+      const sorted = [...samples].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+    if (values.length !== b.get(key).length) throw new Error('BENCH_SAME_FRAME: sample count mismatch');
+    const x = rawMedian(values), y = rawMedian(b.get(key));
+    const spread = x === 0 && y === 0 ? 0 : x === 0 ? null : Math.abs(y - x) / Math.abs(x);
+    return { key, firstP50Ms: x, secondP50Ms: y, relativeSpread: spread, pass: spread !== null && spread <= limit };
+  });
+}
+
 export function formatResultsMarkdown(report, reproReport) {
   if (report.timingProtocol === undefined) throw new Error('BENCH_TIMING_PROTOCOL: report has no protocol');
   const timingProtocol = parseTimingProtocol(report.timingProtocol);
@@ -1300,6 +1374,7 @@ async function main() {
   const args = process.argv.slice(2);
   const timingProtocol = parseTimingProtocolArgs(args);
   const compareBundle = parseCompareBundleArgs(args);
+  if (args.includes('--same-frame') && (args.includes('--check-repro') || args.some(a => a.startsWith('--timing-protocol')))) throw new Error('BENCH_SAME_FRAME: --check-repro and --timing-protocol do not apply; use two independent invocations');
   const isSmoke = args.includes('--smoke');
   const isJson = args.includes('--json');
   const checkRepro = args.includes('--check-repro');
@@ -1338,6 +1413,7 @@ async function main() {
 
   const report = await runBenchmarkSuite({
     timingProtocol,
+    sameFrame: args.includes('--same-frame'),
     compareBundle,
     skeletons,
     instanceCounts,
@@ -1347,6 +1423,12 @@ async function main() {
     checkRepro,
   });
 
+  if (args.includes('--same-frame')) {
+    const output = isJson ? JSON.stringify(report, null, 2) : formatSameFrameMarkdown(report);
+    if (writeResultsPath) writeFileSync(writeResultsPath, formatSameFrameMarkdown(report));
+    console.log(output);
+    return;
+  }
   let reproReport = null;
   if (checkRepro && report.secondFrameTable) {
     reproReport = evaluateReproducibility(report.frameTable, report.secondFrameTable);
