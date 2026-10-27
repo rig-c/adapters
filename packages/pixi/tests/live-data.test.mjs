@@ -192,3 +192,31 @@ test('frozen valid metadata never caches current vertex and tint bounds', () => 
  frame.vertices=new Float64Array(6);frame.tint=new Float64Array(2);
  expect(()=>views.read(frame)).toThrow('tint slotIndex');
 });
+
+test('retained dark/clip storage is reused across captures, resizing and absent rows', () => {
+  const { frame, snapshot } = fixture();
+  const a = frame.attachments[0];
+  a.dark = [.1, .2, .3]; a.clip = { polygon: [0, 0, 1, 0, 1, 1], inverse: false, convex: true };
+  const saved = new RetainedRuntimeFrame();
+  saved.capture(frame, () => snapshot);
+  const row = saved.rows[0], dark = row.dark, clip = row.clip, polygon = clip.polygon;
+  const old = saved.snapshot();
+  old.order[0].dark[0] = .7; old.order[0].clip.polygon[0] = 77;
+  expect(dark[0]).toBe(.1); expect(polygon[0]).toBe(0);
+  a.dark[0] = .9; a.clip.polygon = [4, 0, 2, 0, 2, 2, 0, 2]; a.clip.inverse = true;
+  saved.capture(frame, () => snapshot);
+  expect(row.dark).toBe(dark); expect(row.clip).toBe(clip); expect(row.clip.polygon).toBe(polygon);
+  expect(saved.snapshot().order[0].dark).toEqual([.9, .2, .3]);
+  expect(saved.snapshot().order[0].clip.polygon).toEqual(a.clip.polygon);
+  expect(saved.snapshot().order[0].clip.inverse).toBe(true);
+  expect(old.order[0].dark[0]).toBe(.7); expect(old.order[0].clip.polygon[0]).toBe(77);
+  a.dark = null; a.clip = null; saved.capture(frame, () => snapshot);
+  expect(saved.snapshot().order[0].dark).toBeUndefined(); expect(saved.snapshot().order[0].clip).toBeUndefined();
+  a.dark = [.3, .4, .5]; a.clip = { polygon: [1, 1, 2, 1, 2, 2], inverse: false, convex: true };
+  saved.capture(frame, () => snapshot);
+  expect(row.dark).toBe(dark); expect(row.clip).toBe(clip); expect(row.clip.polygon).toBe(polygon);
+  expect(saved.snapshot().order[0].clip.polygon).toEqual([1, 1, 2, 1, 2, 2]);
+  // Fresh-copy mutant is rejected by the same storage identity assertion.
+  const fresh = Array.from(row.dark);
+  expect(fresh === dark).toBe(false);
+});

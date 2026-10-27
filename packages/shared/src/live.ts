@@ -179,6 +179,7 @@ function templateFromAttachment(a: LiveAttachment): PosedSlot {
 interface SavedRow {
   template: PosedSlot; offset: number; count: number; tintOffset: number;
   dark?: number[]; clip?: PosedClip;
+  darkBuffer?: number[]; clipBuffer?: PosedClip;
 }
 
 /** Only actual typed arrays take the native-copy path; checked proxies stay indexed. */
@@ -252,10 +253,21 @@ export class RetainedRuntimeFrame {
       row.offset = a.offset; row.count = a.count; row.tintOffset = a.slotIndex * 4;
       // These can change independently of attachment identity. Detach at draw,
       // before a checked lease expires or the caller changes a nested buffer.
-      row.dark = a.dark === null ? undefined : Array.from(a.dark);
-      row.clip = a.clip === null ? undefined : {
-        polygon: Array.from(a.clip.polygon), inverse: a.clip.inverse, convex: a.clip.convex,
-      };
+      if (a.dark === null) row.dark = undefined;
+      else {
+        const dark = row.darkBuffer ??= [];
+        dark.length = a.dark.length;
+        for (let j = 0; j < dark.length; j++) dark[j] = a.dark[j];
+        row.dark = dark;
+      }
+      if (a.clip === null) row.clip = undefined;
+      else {
+        const clip = row.clipBuffer ??= { polygon: [], inverse: false, convex: true };
+        clip.polygon.length = a.clip.polygon.length;
+        for (let j = 0; j < clip.polygon.length; j++) clip.polygon[j] = a.clip.polygon[j];
+        clip.inverse = a.clip.inverse; clip.convex = a.clip.convex;
+        row.clip = clip;
+      }
     }
     this.count = frame.count;
     this.generation = frame.generation;
@@ -268,8 +280,10 @@ export class RetainedRuntimeFrame {
     for (let i = 0; i < this.count; i++) {
       const { template, offset, count, tintOffset, dark, clip } = this.rows[i];
       const common = { ...template, tint: savedNumbers(this.tint, tintOffset, 4) as [number, number, number, number] };
-      if (dark) common.dark = dark as [number, number, number]; else delete common.dark;
-      if (clip) common.clip = clip; else delete common.clip;
+      if (dark) common.dark = Array.from(dark) as [number, number, number]; else delete common.dark;
+      if (clip) common.clip = {
+        polygon: Array.from(clip.polygon), inverse: clip.inverse, convex: clip.convex,
+      }; else delete common.clip;
       order.push(template.kind === 'region'
         ? { ...common, kind: 'region', region: template.region, corners: savedNumbers(this.vertices, offset, count) }
         : { ...common, kind: 'mesh', vertices: savedNumbers(this.vertices, offset, count), triangles: template.triangles, sequence: template.sequence });
