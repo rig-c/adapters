@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/rig-c/adapters/compare/pixi-v0.1.3...pixi-v0.1.4) (2026-10-27)
+
+
+### Performance Improvements
+
+* **pixi:** cut the submit residual of the live-frame lease — frozen-field validation cache and whole-buffer copies ([#74](https://github.com/rig-c/adapters/issues/74)) ([0bc82ba](https://github.com/rig-c/adapters/commit/0bc82ba22010eff4a6f3fd9bd1f5736a81dfa5fa))
+
 ## [0.1.3](https://github.com/rig-c/adapters/compare/pixi-v0.1.2...pixi-v0.1.3) (2026-10-27)
 
 
