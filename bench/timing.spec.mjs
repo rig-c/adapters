@@ -39,7 +39,8 @@ async function trace(page, arm, protocol, repro, mutant = 'none') {
       const response = await route.fetch();
       let body = await response.text();
       const boundary = /if \(timingProtocol === ["']gpu-complete-v2["']\) gl\.finish\(\);/g;
-      expect(body.match(boundary)?.length).toBe(3);
+      // Both repro passes now share runPreparedFrames and its one completion boundary.
+      expect(body.match(boundary)?.length).toBe(1);
       body = body.replace(boundary, '/* completion boundary removed */');
       if (mutant === 'batch-only') {
         body = body.replace('return summarizeFrameBatch(prepared, times,', 'gl.finish(); return summarizeFrameBatch(prepared, times,');
