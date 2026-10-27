@@ -26,13 +26,13 @@ protocols, fixture hashes, dependency versions, browser/GPU, workloads and
 recorded host conditions. Retaining the v1 boundary does not make different
 machines, dependency versions or desktop loads equivalent.
 
-The known [#43](https://github.com/rig-c/adapters/issues/43) defects remain:
-`--check-repro` interleaves frames and uses a denominator floor, and cold-load
-measurement fetches the model twice. Its output is not independent-repeatability
-evidence. Use separate full benchmark commands and true relative p50 differences
-with no floor for the #50 gate. Browser contract tests and software-GPU CI verify
-ordering/correctness; only a recorded M4/ANGLE Metal run can establish the target
-machine baseline. Do not refresh historical tables with a different protocol.
+The remaining [#43](https://github.com/rig-c/adapters/issues/43) defects are
+frame-interleaved `--check-repro` sets and the duplicate cold-load model fetch.
+The reproducibility helper now uses the true relative delta without a denominator
+floor, but the interleaved sets still do not establish independent repeatability.
+Browser contract tests and software-GPU CI verify ordering/correctness; target
+machine baselines require recorded hardware runs. Do not refresh historical
+tables with a different protocol.
 
 `bun run test:bench` traces actual WebGL drawing and completion calls around the
 measurement timestamps for both arms and both collection paths. Missing and
@@ -86,5 +86,8 @@ no denominator floor; zero versus zero passes, zero versus nonzero is undefined
 and cannot pass. Near-zero differences can be unstable by this definition and
 must be reported honestly. The CLI does not turn internal batches into two
 independent invocations. Raw GPU paired differences are reported separately;
-CPU and GPU differences must not be mixed. Target repeatability is a separate
-quiet-window measurement, not established by browser correctness tests.
+CPU and GPU differences must not be mixed. The accepted [#66](https://github.com/rig-c/adapters/issues/66)
+and [#68](https://github.com/rig-c/adapters/issues/68) protocols use independent,
+interleaved launches with paired statistics and recorded load, without reviving
+the historical quiet-window gate. Browser correctness tests do not establish
+target repeatability or performance acceptance.
