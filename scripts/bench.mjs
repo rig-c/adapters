@@ -611,7 +611,7 @@ export function evaluatePairedReproducibility(pairedRows1, pairedRows2, maxSprea
   };
 }
 
-export function evaluateReproducibility(run1Rows, run2Rows, maxRelDelta = 0.05, floorMs = 3.0) {
+export function evaluateReproducibility(run1Rows, run2Rows, maxRelDelta = 0.05) {
   const protocol = run1Rows[0]?.timingProtocol;
   if (protocol === undefined) throw new Error('BENCH_TIMING_PROTOCOL: reproducibility rows have no protocol');
   const expectedProtocol = parseTimingProtocol(protocol);
@@ -630,9 +630,11 @@ export function evaluateReproducibility(run1Rows, run2Rows, maxRelDelta = 0.05, 
         `BENCH_REPRO_MISSING_ROW: ${r1.skeleton} ${r1.arm} ${r1.instances}x missing in second run`,
       );
     }
-    const absDeltaMs = Number(Math.abs(r2.p50Ms - r1.p50Ms).toFixed(3));
-    const denom = Math.max(r1.p50Ms, floorMs);
-    const relDelta = Number((absDeltaMs / denom).toFixed(4));
+    if (!Number.isFinite(r1.p50Ms) || r1.p50Ms <= 0 || !Number.isFinite(r2.p50Ms) || r2.p50Ms < 0) {
+      throw new Error(`BENCH_REPRO_INVALID_P50: ${r1.skeleton} ${r1.arm} ${r1.instances}x found ${r1.p50Ms}/${r2.p50Ms}; expected finite p50s, run1 > 0 and run2 >= 0`);
+    }
+    const absDeltaMs = Math.abs(r2.p50Ms - r1.p50Ms);
+    const relDelta = absDeltaMs / r1.p50Ms;
     const pass = relDelta <= maxRelDelta;
     comparisons.push({
       skeleton: r1.skeleton,
@@ -1303,7 +1305,7 @@ export function formatResultsMarkdown(report, reproReport) {
   lines.push(`Command: \`${command}\``);
   lines.push('');
   lines.push(
-    '> **Note**: The load-to-first-frame and back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`loadRigPlayModel` duplicate `skeleton.model.json` fetch, `collectPreparedRuns` frame interleaving, and `evaluateReproducibility` `3.0 ms` denominator floor).',
+    '> **Note**: The load-to-first-frame and back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`loadRigPlayModel` duplicate `skeleton.model.json` fetch and `collectPreparedRuns` frame interleaving).',
   );
   lines.push('');
   lines.push('| Skeleton | Arm | Runs ($M$) | Load `p50` (ms) | Load `p95` (ms) | First-frame draw calls |');
@@ -1366,7 +1368,7 @@ export function formatResultsMarkdown(report, reproReport) {
     lines.push(`Command: \`${command} --check-repro\``);
     lines.push('');
     lines.push(
-      '> **Note**: The back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`evaluateReproducibility` `3.0 ms` denominator floor and `collectPreparedRuns` frame interleaving).',
+      '> **Note**: The back-to-back reproducibility figures in this run are not trusted until [#43](https://github.com/rig-c/adapters/issues/43) lands (`collectPreparedRuns` frame interleaving).',
     );
     lines.push('');
     lines.push('| Skeleton | Instances | Arm | Run 1 `p50` (ms) | Run 2 `p50` (ms) | Abs delta (ms) | Relative delta (`<= 0.0500`) | Verdict |');
@@ -1491,7 +1493,7 @@ async function main() {
     // Verify negative control mutant for Bar 2 reproducibility check
     const driftedRows = report.frameTable.map((r) => ({
       ...r,
-      p50Ms: Number((r.p50Ms * 1.25 + 1.0).toFixed(3)),
+      p50Ms: r.p50Ms * 1.25,
     }));
     const driftCheck = evaluateReproducibility(report.frameTable, driftedRows);
     if (driftCheck.pass) {
