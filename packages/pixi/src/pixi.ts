@@ -1,16 +1,15 @@
+import { LiveDrawViews, RetainedRuntimeFrame, numberSource, numberOffset, numberCount, type DrawNumbers, type DrawClip, type DrawMesh, type DrawRegion, type DrawSlot } from './live.ts';
 import { clamp01 } from '@rig-c/adapters-shared';
 import {
   type BlendMode,
   type BoneAdjust,
   type BoneWorld,
   type ModelAssets,
+  type LiveFrame,
+  type LiveNumbers,
   type PlayOptions,
   type PoseBounds,
-  type PosedClip,
   type PosedFrame,
-  type PosedMesh,
-  type PosedRegion,
-  type PosedSlot,
   type QueueOptions,
   type RigComplete,
   type RigEnvironment,
@@ -60,7 +59,7 @@ export type PixiColorMatrix = [
  * Maps a `PosedSlot.tint` tuple (`[r, g, b, a]` in `0..1`) to PixiJS
  * 24-bit RGB `tint` (`0xRRGGBB`) and `alpha` (`0..1`).
  */
-export function tintToPixi(tint: readonly [number, number, number, number]): {
+export function tintToPixi(tint: LiveNumbers): {
   color: number;
   alpha: number;
 } {
@@ -81,13 +80,17 @@ export function tintToPixi(tint: readonly [number, number, number, number]): {
  * before applying the matrix and re-premultiplies by `result.a` afterwards).
  */
 export function darkTintColorMatrix(
-  tint: readonly [number, number, number, number],
-  dark: readonly [number, number, number],
+  tint: LiveNumbers,
+  dark: LiveNumbers,
 ): PixiColorMatrix {
-  const r = clamp01(tint[0]);
-  const g = clamp01(tint[1]);
-  const b = clamp01(tint[2]);
-  const a = clamp01(tint[3]);
+  return darkMatrixAt(tint, 0, dark);
+}
+
+function darkMatrixAt(tint: LiveNumbers, offset: number, dark: LiveNumbers): PixiColorMatrix {
+  const r = clamp01(tint[offset]);
+  const g = clamp01(tint[offset + 1]);
+  const b = clamp01(tint[offset + 2]);
+  const a = clamp01(tint[offset + 3]);
   const dr = clamp01(dark[0]);
   const dg = clamp01(dark[1]);
   const db = clamp01(dark[2]);
@@ -99,7 +102,7 @@ export function darkTintColorMatrix(
   ];
 }
 
-function polygonSignedArea2(polygon: readonly number[]): number {
+function polygonSignedArea2(polygon: LiveNumbers): number {
   let area2 = 0;
   const n = polygon.length / 2;
   for (let i = 0; i < n; i++) {
@@ -163,42 +166,50 @@ function segmentsIntersect(
 }
 
 function assertFiniteTuple(
-  values: readonly number[],
+  values: DrawNumbers,
   expectedLength: number,
   field: string,
   slot: string,
   page: string,
+  indexed = false,
 ): void {
-  if (!Array.isArray(values) || values.length !== expectedLength) {
+  const count = indexed || Array.isArray(values) ? numberCount(values) : -1;
+  if (count !== expectedLength) {
     throw new Error(
-      `PixiRenderer: slot "${slot}" on page "${page}" has invalid ${field} length ${Array.isArray(values) ? values.length : 'non-array'} (expected ${expectedLength})`,
+      `PixiRenderer: slot "${slot}" on page "${page}" has invalid ${field} length ${count < 0 ? 'non-array' : count} (expected ${expectedLength})`,
     );
   }
-  for (let i = 0; i < expectedLength; i++) {
-    if (!Number.isFinite(values[i])) {
+  const source = numberSource(values);
+  const offset = numberOffset(values);
+  for (let i = 0; i < count; i++) {
+    if (!Number.isFinite(source[offset + i])) {
       throw new Error(
-        `PixiRenderer: slot "${slot}" on page "${page}" has non-finite ${field}[${i}]=${String(values[i])} (expected finite number)`,
+        `PixiRenderer: slot "${slot}" on page "${page}" has non-finite ${field}[${i}]=${String(source[offset + i])} (expected finite number)`,
       );
     }
   }
 }
 
 function assertFiniteEvenArray(
-  values: readonly number[],
+  values: DrawNumbers,
   minLength: number,
   field: string,
   slot: string,
   page: string,
+  indexed = false,
 ): void {
-  if (!Array.isArray(values) || values.length < minLength || values.length % 2 !== 0) {
+  const count = indexed || Array.isArray(values) ? numberCount(values) : -1;
+  if (count < minLength || count % 2 !== 0) {
     throw new Error(
-      `PixiRenderer: slot "${slot}" on page "${page}" has invalid ${field} length ${Array.isArray(values) ? values.length : 'non-array'} (expected even length >= ${minLength})`,
+      `PixiRenderer: slot "${slot}" on page "${page}" has invalid ${field} length ${count < 0 ? 'non-array' : count} (expected even length >= ${minLength})`,
     );
   }
-  for (let i = 0; i < values.length; i++) {
-    if (!Number.isFinite(values[i])) {
+  const source = numberSource(values);
+  const offset = numberOffset(values);
+  for (let i = 0; i < count; i++) {
+    if (!Number.isFinite(source[offset + i])) {
       throw new Error(
-        `PixiRenderer: slot "${slot}" on page "${page}" has non-finite ${field}[${i}]=${String(values[i])} (expected finite number)`,
+        `PixiRenderer: slot "${slot}" on page "${page}" has non-finite ${field}[${i}]=${String(source[offset + i])} (expected finite number)`,
       );
     }
   }
@@ -209,7 +220,7 @@ interface ValidatedClip {
   inverse: boolean;
 }
 
-function validateClip(clip: PosedClip, slot: string, page: string): ValidatedClip {
+function validateClip(clip: DrawClip, slot: string, page: string, indexed = false): ValidatedClip {
   if (!clip || typeof clip !== 'object') {
     throw new Error(
       `PixiRenderer: slot "${slot}" on page "${page}" has invalid clip value (expected PosedClip object)`,
@@ -220,7 +231,7 @@ function validateClip(clip: PosedClip, slot: string, page: string): ValidatedCli
       `PixiRenderer: slot "${slot}" on page "${page}" has invalid clip flags inverse=${String(clip.inverse)}, convex=${String(clip.convex)} (expected booleans)`,
     );
   }
-  if (!Array.isArray(clip.polygon) || clip.polygon.length < 6 || clip.polygon.length % 2 !== 0) {
+  if ((!indexed && !Array.isArray(clip.polygon)) || clip.polygon.length < 6 || clip.polygon.length % 2 !== 0) {
     throw new Error(
       `PixiRenderer: slot "${slot}" on page "${page}" carries an unbuildable clip polygon with fewer than 3 vertices: length=${Array.isArray(clip.polygon) ? clip.polygon.length : 'non-array'} (expected even length >= 6)`,
     );
@@ -324,7 +335,7 @@ interface PreparedSlotCommon {
 
 interface PreparedSlotItem extends PreparedSlotCommon {
   kind: 'region' | 'mesh';
-  slot: PosedSlot;
+  slot: DrawSlot;
   texture: Texture;
 }
 
@@ -332,9 +343,9 @@ interface MeshSlotEntry {
   mesh: Mesh<MeshGeometry>;
   geometry: MeshGeometry;
   positions: Float32Array;
-  verticesRef: readonly number[] | null;
-  uvsRef: readonly number[] | null;
-  trianglesRef: readonly number[] | null;
+  verticesRef: DrawNumbers | null;
+  uvsRef: LiveNumbers | null;
+  trianglesRef: LiveNumbers | null;
   page: string | null;
   pma: boolean | null;
   texture: Texture | null;
@@ -344,7 +355,7 @@ interface MeshSlotEntry {
 interface RegionSlotEntry {
   sprite: Sprite;
   darkFilter: ColorMatrixFilter | null;
-  uvsRef: readonly number[] | null;
+  uvsRef: LiveNumbers | null;
   page: string | null;
   pma: boolean | null;
   texture: Texture | null;
@@ -469,7 +480,8 @@ export class PixiRenderer {
   private readonly meshPool = new Map<string, MeshSlotEntry>();
   private readonly maskPool: Graphics[] = [];
   private rootMask: Graphics | null = null;
-  private readonly validatedClips = new Map<PosedClip, ValidatedClip>();
+  private readonly validatedClips = new Map<DrawClip, ValidatedClip>();
+  private readonly liveViews = new LiveDrawViews();
   private readonly validatedPages = new Map<string, ValidatedPageInfo>();
   private readonly slotCounts = new Map<string, number>();
   private readonly preparedPool: PreparedSlotItem[] = [];
@@ -546,20 +558,38 @@ export class PixiRenderer {
    * Validates every slot in `frame.order` before mutating `this.root.children`
    * so a refused frame never leaves a half-updated scene graph.
    */
-  render(frame: PosedFrame): void {
+  render(frame: PosedFrame | LiveFrame): void {
+    if (!frame || typeof frame !== 'object') {
+      throw new Error('PixiRenderer: frame.order is missing or not an array (expected PosedFrame or LiveFrame)');
+    }
+    if ('order' in frame) {
+      this.renderOrder(frame.order, false);
+      return;
+    }
+    // read() checks the generation before renderOrder can touch scene objects.
+    try {
+      this.renderOrder(this.liveViews.read(frame), true);
+    } finally {
+      this.liveViews.release();
+      this.validatedClips.clear();
+      // Static UV/index references are compared only by identity. Production
+      // metadata stays stable; a prior checked proxy is never read by index.
+    }
+  }
+
+  private renderOrder(order: readonly DrawSlot[], indexed: boolean): void {
     if (this.disposed) {
       throw new Error(
         'PixiRenderer: cannot render on a disposed PixiRenderer (expected active renderer)',
       );
     }
-    if (!frame || !Array.isArray(frame.order)) {
+    if (!Array.isArray(order)) {
       throw new Error('PixiRenderer: frame.order is missing or not an array (expected PosedFrame)');
     }
 
     this.validatedClips.clear();
     this.validatedPages.clear();
     this.slotCounts.clear();
-    const order = frame.order;
     const slotCount = order.length;
     const prepared = this.preparedPool;
     const slotCounts = this.slotCounts;
@@ -588,7 +618,7 @@ export class PixiRenderer {
         };
         prepared[i] = item;
       }
-      this.prepareSlot(slot, poolKey, item);
+      this.prepareSlot(slot, poolKey, item, indexed);
     }
 
     // Promote root to a RenderGroup only when explicitly requested or when a
@@ -648,8 +678,8 @@ export class PixiRenderer {
 
       const view =
         item.kind === 'region'
-          ? this.updateRegionView(poolKey, item, item.slot as PosedRegion)
-          : this.updateMeshView(poolKey, item, item.slot as PosedMesh);
+          ? this.updateRegionView(poolKey, item, item.slot as DrawRegion)
+          : this.updateMeshView(poolKey, item, item.slot as DrawMesh);
 
       if (!allShareRootClip && item.clipPlan !== null && item.slot.clip !== undefined) {
         while (this.maskPool.length <= maskPoolIndex) {
@@ -743,7 +773,7 @@ export class PixiRenderer {
     this.preparedPool.length = 0;
   }
 
-  private updateRegionView(poolKey: string, item: PreparedSlotItem, slot: PosedRegion): Sprite {
+  private updateRegionView(poolKey: string, item: PreparedSlotItem, slot: DrawRegion): Sprite {
     let entry = this.regionPool.get(poolKey);
     if (!entry) {
       const sprite = new Sprite(Texture.EMPTY);
@@ -783,13 +813,14 @@ export class PixiRenderer {
     // skew, and scale with rotation=0 rather than sprite.setFromMatrix(),
     // because PixiJS Matrix.decompose zeroes skew when |skewX + skewY| < 1e-5,
     // which would shift corners of large sprites by up to ~3.3e-5 px.
-    const corners = slot.corners;
-    const c0 = corners[0];
-    const c1 = corners[1];
-    const c2 = corners[2];
-    const c3 = corners[3];
-    const c4 = corners[4];
-    const c5 = corners[5];
+    const corners = numberSource(slot.corners);
+    const cornerOffset = numberOffset(slot.corners);
+    const c0 = corners[cornerOffset + 0];
+    const c1 = corners[cornerOffset + 1];
+    const c2 = corners[cornerOffset + 2];
+    const c3 = corners[cornerOffset + 3];
+    const c4 = corners[cornerOffset + 4];
+    const c5 = corners[cornerOffset + 5];
     if (
       textureChanged ||
       entry.c0 !== c0 ||
@@ -829,19 +860,24 @@ export class PixiRenderer {
   private updateMeshView(
     poolKey: string,
     item: PreparedSlotItem,
-    slot: PosedMesh,
+    slot: DrawMesh,
   ): Mesh<MeshGeometry> {
     const verts = slot.vertices;
+    const points = numberSource(verts);
+    const offset = numberOffset(verts);
+    const count = numberCount(verts);
     let entry = this.meshPool.get(poolKey);
 
     if (!entry) {
-      const positions = new Float32Array(verts.length);
-      for (let i = 0; i < verts.length; i += 2) {
-        positions[i] = verts[i];
-        positions[i + 1] = -verts[i + 1];
+      const positions = new Float32Array(count);
+      for (let i = 0; i < count; i += 2) {
+        positions[i] = points[offset + i];
+        positions[i + 1] = -points[offset + i + 1];
       }
-      const uvs = new Float32Array(slot.uvs);
-      const indices = new Uint32Array(slot.triangles);
+      const uvs = new Float32Array(slot.uvs.length);
+      const indices = new Uint32Array(slot.triangles.length);
+      for (let i = 0; i < uvs.length; i++) uvs[i] = slot.uvs[i];
+      for (let i = 0; i < indices.length; i++) indices[i] = slot.triangles[i];
       const geometry = new MeshGeometry({
         positions,
         uvs,
@@ -875,11 +911,11 @@ export class PixiRenderer {
     } else {
       // Update world positions (Y flipped to -Y in root local space) only when
       // vertex count or float32 coordinates change.
-      if (entry.positions.length !== verts.length) {
-        const positions = new Float32Array(verts.length);
-        for (let i = 0; i < verts.length; i += 2) {
-          positions[i] = verts[i];
-          positions[i + 1] = -verts[i + 1];
+      if (entry.positions.length !== count) {
+        const positions = new Float32Array(count);
+        for (let i = 0; i < count; i += 2) {
+          positions[i] = points[offset + i];
+          positions[i + 1] = -points[offset + i + 1];
         }
         entry.positions = positions;
         entry.geometry.positions = positions;
@@ -888,9 +924,9 @@ export class PixiRenderer {
       } else {
         const positions = entry.positions;
         let changed = this.alwaysReuploadGeometry;
-        for (let i = 0; i < verts.length; i += 2) {
-          const x = Math.fround(verts[i]);
-          const y = Math.fround(-verts[i + 1]);
+        for (let i = 0; i < count; i += 2) {
+          const x = Math.fround(points[offset + i]);
+          const y = Math.fround(-points[offset + i + 1]);
           if (positions[i] !== x || positions[i + 1] !== y) {
             positions[i] = x;
             positions[i + 1] = y;
@@ -904,21 +940,40 @@ export class PixiRenderer {
         }
       }
 
-      // Reuse UVs by array reference identity across frames.
+      // Read indexed values directly; retain GPU buffers across checked leases too.
       if (this.alwaysReuploadGeometry || entry.uvsRef !== slot.uvs) {
-        entry.geometry.uvs = new Float32Array(slot.uvs);
+        let uvs = entry.geometry.uvs;
+        // A new static-array identity requests an upload under the snapshot
+        // contract, even when its values match. Keep the GPU buffer in place.
+        let changed = this.alwaysReuploadGeometry || entry.uvsRef !== slot.uvs;
+        if (uvs.length !== slot.uvs.length) {
+          uvs = new Float32Array(slot.uvs.length);
+          entry.geometry.uvs = uvs;
+          changed = true;
+        }
+        for (let i = 0; i < uvs.length; i++) {
+          const value = Math.fround(slot.uvs[i]);
+          if (uvs[i] !== value) { uvs[i] = value; changed = true; }
+        }
+        if (changed) { entry.geometry.getBuffer('aUV').update(); this.uvUploadCount++; }
         entry.uvsRef = slot.uvs;
-        this.uvUploadCount++;
-        this.geometryUploadCount = this.uvUploadCount + this.triangleUploadCount;
       }
-
-      // Reuse triangle indices by array reference identity across frames.
       if (this.alwaysReuploadGeometry || entry.trianglesRef !== slot.triangles) {
-        entry.geometry.indices = new Uint32Array(slot.triangles);
+        let indices = entry.geometry.indices;
+        let changed = this.alwaysReuploadGeometry || entry.trianglesRef !== slot.triangles;
+        if (indices.length !== slot.triangles.length) {
+          indices = new Uint32Array(slot.triangles.length);
+          entry.geometry.indices = indices;
+          changed = true;
+        }
+        for (let i = 0; i < indices.length; i++) {
+          const value = slot.triangles[i];
+          if (indices[i] !== value) { indices[i] = value; changed = true; }
+        }
+        if (changed) { entry.geometry.indexBuffer.update(); this.triangleUploadCount++; }
         entry.trianglesRef = slot.triangles;
-        this.triangleUploadCount++;
-        this.geometryUploadCount = this.uvUploadCount + this.triangleUploadCount;
       }
+      this.geometryUploadCount = this.uvUploadCount + this.triangleUploadCount;
 
       entry.page = slot.page;
       entry.pma = slot.pma;
@@ -962,7 +1017,7 @@ export class PixiRenderer {
     }
   }
 
-  private prepareSlot(slot: PosedSlot, poolKey: string, out: PreparedSlotItem): void {
+  private prepareSlot(slot: DrawSlot, poolKey: string, out: PreparedSlotItem, indexed: boolean): void {
     if (!slot || typeof slot !== 'object') {
       throw new Error(
         'PixiRenderer: encountered invalid slot entry in frame.order (expected PosedSlot object)',
@@ -1013,32 +1068,34 @@ export class PixiRenderer {
     }
     const { pageImage, pw, ph } = pageInfo;
 
-    assertFiniteTuple(slot.tint, 4, 'tint', slotName, pageName);
+    assertFiniteTuple(slot.tint, 4, 'tint', slotName, pageName, indexed);
+    const tint = numberSource(slot.tint);
+    const tintOffset = numberOffset(slot.tint);
 
     let darkMatrix: PixiColorMatrix | null = null;
     if (slot.dark !== undefined) {
-      assertFiniteTuple(slot.dark, 3, 'dark', slotName, pageName);
-      darkMatrix = darkTintColorMatrix(slot.tint, slot.dark);
+      assertFiniteTuple(slot.dark, 3, 'dark', slotName, pageName, indexed);
+      darkMatrix = darkMatrixAt(tint, tintOffset, slot.dark);
     }
 
     let clipPlan: ValidatedClip | null = null;
     if (slot.clip !== undefined) {
       let cachedPlan = this.validatedClips.get(slot.clip);
       if (!cachedPlan) {
-        cachedPlan = validateClip(slot.clip, slotName, pageName);
+        cachedPlan = validateClip(slot.clip, slotName, pageName, indexed);
         this.validatedClips.set(slot.clip, cachedPlan);
       }
       clipPlan = cachedPlan;
     }
 
-    const r = Math.round(clamp01(slot.tint[0]) * 255);
-    const g = Math.round(clamp01(slot.tint[1]) * 255);
-    const b = Math.round(clamp01(slot.tint[2]) * 255);
+    const r = Math.round(clamp01(tint[tintOffset + 0]) * 255);
+    const g = Math.round(clamp01(tint[tintOffset + 1]) * 255);
+    const b = Math.round(clamp01(tint[tintOffset + 2]) * 255);
     const color = (r << 16) | (g << 8) | b;
-    const alpha = clamp01(slot.tint[3]);
+    const alpha = clamp01(tint[tintOffset + 3]);
 
     if (slot.kind === 'region') {
-      assertFiniteTuple(slot.corners, 8, 'corners', slotName, pageName);
+      assertFiniteTuple(slot.corners, 8, 'corners', slotName, pageName, indexed);
 
       const regionEntry = this.regionPool.get(poolKey);
       let texture: Texture;
@@ -1054,7 +1111,7 @@ export class PixiRenderer {
         this.sourceFor(pageImage, slot.pma);
         texture = regionEntry.texture;
       } else {
-        assertFiniteTuple(slot.uvs, 8, 'uvs', slotName, pageName);
+        assertFiniteTuple(slot.uvs, 8, 'uvs', slotName, pageName, indexed);
         texture = this.regionTextureFor(pageImage, pw, ph, slot);
       }
 
@@ -1071,21 +1128,21 @@ export class PixiRenderer {
     }
 
     // slot.kind === 'mesh'
-    assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName);
+    assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName, indexed);
     const meshEntry = this.meshPool.get(poolKey);
 
     const sameVertexCount =
       !this.alwaysReuploadGeometry &&
       meshEntry !== undefined &&
-      meshEntry.positions.length === slot.vertices.length;
+      meshEntry.positions.length === numberCount(slot.vertices);
 
     if (!sameVertexCount || meshEntry.uvsRef !== slot.uvs) {
-      assertFiniteTuple(slot.uvs, slot.vertices.length, 'uvs', slotName, pageName);
+      assertFiniteTuple(slot.uvs, numberCount(slot.vertices), 'uvs', slotName, pageName, indexed);
     }
 
     if (!sameVertexCount || meshEntry.trianglesRef !== slot.triangles) {
       if (
-        !Array.isArray(slot.triangles) ||
+        (!indexed && !Array.isArray(slot.triangles)) ||
         slot.triangles.length < 3 ||
         slot.triangles.length % 3 !== 0
       ) {
@@ -1093,7 +1150,7 @@ export class PixiRenderer {
           `PixiRenderer: slot "${slotName}" on page "${pageName}" has invalid triangles length ${Array.isArray(slot.triangles) ? slot.triangles.length : 'non-array'} (expected multiple of 3 >= 3)`,
         );
       }
-      const vertexCount = slot.vertices.length / 2;
+      const vertexCount = numberCount(slot.vertices) / 2;
       for (let i = 0; i < slot.triangles.length; i++) {
         const idx = slot.triangles[i];
         if (!Number.isInteger(idx) || idx < 0 || idx >= vertexCount) {
@@ -1103,7 +1160,7 @@ export class PixiRenderer {
         }
       }
     }
-    if (typeof slot.sequence !== 'number' || !Number.isInteger(slot.sequence)) {
+    if (!indexed && (typeof slot.sequence !== 'number' || !Number.isInteger(slot.sequence))) {
       throw new Error(
         `PixiRenderer: slot "${slotName}" on page "${pageName}" has invalid sequence=${String(slot.sequence)} (expected integer)`,
       );
@@ -1184,9 +1241,10 @@ export class PixiRenderer {
     pageImage: HTMLImageElement,
     pw: number,
     ph: number,
-    slot: PosedRegion,
+    slot: DrawRegion,
   ): Texture {
-    const [blU, blV, ulU, ulV, urU, urV, brU, brV] = slot.uvs;
+    const blU = slot.uvs[0], blV = slot.uvs[1], ulU = slot.uvs[2], ulV = slot.uvs[3];
+    const urU = slot.uvs[4], urV = slot.uvs[5], brU = slot.uvs[6], brV = slot.uvs[7];
     const key = `${slot.page}\u0000${slot.pma ? '1' : '0'}\u0000${blU},${blV},${ulU},${ulV},${urU},${urV},${brU},${brV}`;
     let texture = this.regionTextures.get(key);
     if (texture) {
@@ -1239,6 +1297,10 @@ export class PixiRenderer {
  * Options for constructing a `PixiRig` display object.
  */
 export interface PixiRigOptions {
+  /** Borrowed-frame diagnostics; omitted keeps play's development default. */
+  liveFrameChecks?: boolean;
+  /** Explicit reference poser, useful when validating unsupported runtime views. */
+  poser?: 'auto' | 'oracle';
   /** Initial skin name (defaults to `'default'`). */
   skin?: string;
   /** Optional initial slot filter (`only` / `hide`). */
@@ -1287,7 +1349,8 @@ export class PixiRig extends Container {
   private ticker: Ticker | null;
   private autoUpdate: boolean;
   private tickerAttached = false;
-  private lastDrawnFrame: PosedFrame;
+  private lastDrawnFrame: PosedFrame | null = null;
+  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame();
   private rigDestroyed = false;
 
   constructor(assets: ModelAssets, options: PixiRigOptions = {}) {
@@ -1327,6 +1390,8 @@ export class PixiRig extends Container {
       mode,
       skin: options.skin,
       slots: options.slots,
+      liveFrameChecks: options.liveFrameChecks,
+      poser: options.poser,
     });
     if (rawScale !== undefined) {
       this.player.timeScale = rawScale;
@@ -1385,7 +1450,7 @@ export class PixiRig extends Container {
       );
     }
     this.player.play(name, options);
-    this.draw();
+    this.drawCurrent();
     if (this.autoUpdate && this.ticker) {
       this.attachTicker();
     }
@@ -1403,7 +1468,7 @@ export class PixiRig extends Container {
       );
     }
     this.player.advance(dt);
-    this.draw();
+    this.drawCurrent();
   }
 
   /**
@@ -1418,7 +1483,7 @@ export class PixiRig extends Container {
       );
     }
     this.player.seek(time);
-    this.draw();
+    this.drawCurrent();
   }
 
   /**
@@ -1434,12 +1499,41 @@ export class PixiRig extends Container {
   }
 
   /**
-   * Returns the most recently drawn `PosedFrame` record (the exact object passed
-   * to `this.renderer.render()`).
+   * Submit a snapshot or a current lease from this.player synchronously.
+   * This is the draw half for hosts that time advance/acquisition separately.
+   */
+  renderFrame(frame: PosedFrame | LiveFrame): void {
+    this.ensureActive('renderFrame');
+    if ('order' in frame) {
+      this.renderer.render(frame);
+      this.lastDrawnFrame = frame;
+      return;
+    }
+    if (frame.generation !== this.player.generation) {
+      throw new Error(`PixiRig: live frame generation ${frame.generation} needs current player generation ${this.player.generation}`);
+    }
+    if (this.player.poser !== 'runtime') {
+      // Live metadata omits sequence and full draw-order z. Keep the exact
+      // oracle snapshot rather than fabricate either field for retained reads.
+      this.renderFrame(this.player.posedFrame());
+      return;
+    }
+    this.renderer.render(frame);
+    this.retainedRuntimeFrame.capture(frame, () => this.player.posedFrame());
+    this.lastDrawnFrame = null;
+  }
+
+  private drawCurrent(): void {
+    this.renderFrame(this.player.poser === 'runtime' ? this.player.liveFrame() : this.player.posedFrame());
+  }
+
+  /**
+   * Returns the detached most recently drawn record. A lease draw materializes
+   * it on demand from saved Float64 values, even after direct player mutation.
    */
   drawnFrame(): PosedFrame {
     this.ensureActive('drawnFrame');
-    return this.lastDrawnFrame;
+    return this.lastDrawnFrame ??= this.retainedRuntimeFrame.snapshot();
   }
 
   /**
@@ -1518,7 +1612,7 @@ export class PixiRig extends Container {
   set skin(name: string | undefined) {
     this.ensureActive('skin');
     this.player.skin = name;
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Active slot filter (`SlotFilter | null`). Setting re-draws immediately. */
@@ -1529,7 +1623,7 @@ export class PixiRig extends Container {
   set slots(filter: SlotFilter | null) {
     this.ensureActive('slots');
     this.player.slots = filter;
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Whole-skeleton tint multiplier `[r, g, b, a]`. Setting re-draws immediately. */
@@ -1540,7 +1634,7 @@ export class PixiRig extends Container {
   set color(rgba: [number, number, number, number]) {
     this.ensureActive('color');
     this.player.color = rgba;
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Per-pose bone adjustment callback (`BoneAdjust | null`). Setting re-poses and re-draws immediately. */
@@ -1551,7 +1645,7 @@ export class PixiRig extends Container {
   set adjust(fn: BoneAdjust | null) {
     this.ensureActive('adjust');
     this.player.adjust = fn;
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Whether the underlying `RigPlayer` is on the composed multi-track mixer. */
@@ -1564,7 +1658,7 @@ export class PixiRig extends Container {
   repose(): void {
     this.ensureActive('repose');
     this.player.repose();
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Pauses playback on the underlying `RigPlayer`. */
@@ -1589,7 +1683,7 @@ export class PixiRig extends Container {
   clear(track?: number, options?: { mix?: number }): void {
     this.ensureActive('clear');
     this.player.clear(track, options);
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Queues a track clear with optional `mix` and `delay`. */
@@ -1602,7 +1696,7 @@ export class PixiRig extends Container {
   setAlpha(track: number, alpha: number): void {
     this.ensureActive('setAlpha');
     this.player.setAlpha(track, alpha);
-    this.draw();
+    this.drawCurrent();
   }
 
   /** Inspects the current track entry on `track` (defaults to `0`). */
@@ -1615,7 +1709,7 @@ export class PixiRig extends Container {
   environment(patch?: Partial<RigEnvironment> | null): RigEnvironment {
     this.ensureActive('environment');
     const env = this.player.environment(patch);
-    this.draw();
+    this.drawCurrent();
     return env;
   }
 

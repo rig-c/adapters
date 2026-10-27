@@ -1,5 +1,6 @@
 import { DEFAULT_TIMING_PROTOCOL, parseTimingProtocol, type TimingProtocol } from './timing-protocol.ts';
-import { loadModel, type ModelAssets, type PosedFrame } from '@rig-c/play';
+import { splitPose, splitClockControl, snapshotShare, premiseVerdict, type PoseSplitTiming } from './pose-split.ts';
+import { loadModel, type LiveFrame, type ModelAssets, type PosedFrame } from '@rig-c/play';
 import { PixiRig } from '@rig-c/pixi';
 import * as PixiNamespace from 'pixi.js';
 import { Container, ImageSource, Matrix, WebGLRenderer } from 'pixi.js';
@@ -345,6 +346,9 @@ interface CompareBundleModule {
 }
 
 let compareBundleModule: CompareBundleModule | null = null;
+let compareAsPrimary = false;
+
+export function useCompareAsPrimary(enabled: boolean): void { compareAsPrimary = enabled; }
 const cachedOfficialAssets = new Map<BenchSkeleton, LoadedSpineOfficial>();
 const cachedRigPlayAssets = new Map<BenchSkeleton, ModelAssets>();
 const cachedCompareRigPlayAssets = new Map<BenchSkeleton, ModelAssets>();
@@ -407,7 +411,7 @@ async function loadRigPlayModel(
   const suffix = cacheBust ? `?cb=${encodeURIComponent(cacheBust)}` : '';
   const modelUrl = `${baseUrl}/${skeleton}/skeleton.model.json${suffix}`;
   await requireFetchText(skeleton, modelUrl, cacheBust ? 'no-store' : 'default');
-  const loader = arm === 'rig-c-pixi-compare' ? requireCompareBundle().loadModel : loadModel;
+  const loader = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().loadModel : loadModel;
   try {
     return await loader({
       modelUrl, regions: 'none',
@@ -482,8 +486,8 @@ function createRigInstance(
   useSeek = true,
   arm: 'rig-c-pixi' | 'rig-c-pixi-compare' = 'rig-c-pixi',
 ): PixiRig {
-  const RigCtor = arm === 'rig-c-pixi-compare' ? requireCompareBundle().PixiRig : PixiRig;
-  const rig = new RigCtor(assets, { ticker: null, autoUpdate: false });
+  const RigCtor = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().PixiRig : PixiRig;
+  const rig = new RigCtor(assets, { ticker: null, autoUpdate: false, liveFrameChecks: false });
   rig.position.set(x, y);
   rig.scale.set(scale);
   rig.play(animation, { loop: true });
@@ -776,6 +780,8 @@ interface PreparedStage {
   stage: Container;
   resetPhase(): void;
   poseAll(dt: number): void;
+  splitPose?(dt: number): PoseSplitTiming;
+  poserCounts?(): Record<string, number>;
   drawAll(options?: { clear?: boolean; transform?: Matrix }): void;
   dispose(): void;
 }
@@ -815,7 +821,7 @@ export async function prepareBenchmarkStage(
   instances: number,
   warmupFrames = 60,
   baseUrl = '/bench',
-  options: { keepPrepared?: boolean } = {},
+  options: { keepPrepared?: boolean; snapshotOnly?: boolean } = {},
 ): Promise<{ skeleton: BenchSkeleton; arm: BenchArm; instances: number; warmupFrames: number; drawCallsPerFrame: number; trianglesPerFrame: number }> {
   if (!options.keepPrepared) {
     for (const existing of preparedStages.values()) {
@@ -919,6 +925,8 @@ export async function prepareBenchmarkStage(
   const assets = await getCachedRigPlayModel(skeleton, baseUrl, arm);
   const rigs: PixiRig[] = [];
   const posedFrames: PosedFrame[] = new Array<PosedFrame>(grid.length);
+  const liveFrames: LiveFrame[] = new Array<LiveFrame>(grid.length);
+  const snapshotOnly = options.snapshotOnly || arm === 'rig-c-pixi-compare' || compareAsPrimary;
   for (let i = 0; i < grid.length; i++) {
     const slot = grid[i];
     const rig = createRigInstance(
@@ -946,16 +954,25 @@ export async function prepareBenchmarkStage(
       posedFrames[i] = r.player.posedFrame();
     }
   };
-  const poseAll = (stepDt: number): void => {
+  const poseSnapshots = (stepDt: number): void => {
     for (let i = 0; i < rigs.length; i++) {
       const r = rigs[i];
       r.player.advance(stepDt);
       posedFrames[i] = r.player.posedFrame();
     }
   };
+  const poseAll = (stepDt: number): void => {
+    if (snapshotOnly) { poseSnapshots(stepDt); return; }
+    for (let i = 0; i < rigs.length; i++) {
+      const r = rigs[i];
+      r.player.advance(stepDt);
+      liveFrames[i] = r.player.liveFrame();
+    }
+  };
   const drawAll = (options: { clear?: boolean; transform?: Matrix } = {}): void => {
     for (let i = 0; i < rigs.length; i++) {
-      rigs[i].renderer.render(posedFrames[i]);
+      if (snapshotOnly) rigs[i].renderer.render(posedFrames[i]);
+      else rigs[i].renderFrame(liveFrames[i]);
     }
     renderer.render({ container: stage, ...options });
   };
@@ -980,6 +997,12 @@ export async function prepareBenchmarkStage(
     stage,
     resetPhase,
     poseAll,
+    splitPose: (stepDt) => splitPose(rigs, posedFrames, stepDt, () => performance.now()),
+    poserCounts: () => {
+      const counts: Record<string, number> = {};
+      for (const rig of rigs) counts[rig.player.poser] = (counts[rig.player.poser] ?? 0) + 1;
+      return counts;
+    },
     drawAll,
     dispose() {
       if (disposed) return;
@@ -1088,6 +1111,66 @@ export async function runPreparedFrames(
   }
 
   return summarizeFrameBatch(prepared, times, poseTimes, drawTimes, totalDrawCalls, totalTriangles, timingProtocol);
+}
+
+/** Split the existing pose workload; no adapter performance path is changed. */
+export async function runPreparedPoseSplit(measuredFrames = 76, splitFirst = false) {
+  if (!activePreparedStage?.splitPose || !activePreparedStage.poserCounts) {
+    throw new Error('BENCH_POSE_SPLIT: prepare a rig-c-pixi stage before splitting its pose column');
+  }
+  if (!Number.isInteger(measuredFrames) || measuredFrames <= 0) {
+    throw new Error(`BENCH_POSE_SPLIT: measuredFrames=${measuredFrames}; expected positive integer`);
+  }
+  const prepared = activePreparedStage;
+  const split = prepared.splitPose!;
+  const { renderer, counters } = await getRenderer();
+  const gl = renderer.gl;
+  const frames: Array<{
+    frame: number; advanceMs: number; snapshotMs: number; poseMs: number;
+    drawMs: number; frameMs: number; clockControlMs: number;
+    drawCalls: number; triangles: number;
+  }> = [];
+  let baseline: FrameBatchResult | null = null;
+  for (const mode of splitFirst ? ['split', 'baseline'] : ['baseline', 'split']) {
+    prepared.resetPhase();
+    if (mode === 'baseline') {
+      baseline = await runPreparedFrames(measuredFrames, 'gpu-complete-v2');
+      continue;
+    }
+    gl.finish();
+    for (let frame = 0; frame < measuredFrames; frame++) {
+      // Report all three clock reads per instance as a separate control.
+      const controlStart = performance.now();
+      splitClockControl(prepared.instances, () => performance.now());
+      const clockControlMs = performance.now() - controlStart;
+      counters.reset();
+      const t0 = performance.now();
+      const parts = split(1 / 60);
+      const t1 = performance.now();
+      prepared.drawAll();
+      gl.finish();
+      const t2 = performance.now();
+      frames.push({ frame, ...parts, poseMs: t1 - t0, drawMs: t2 - t1, frameMs: t2 - t0,
+        clockControlMs, drawCalls: counters.drawCalls, triangles: counters.triangles });
+    }
+  }
+  const sum = (field: 'advanceMs' | 'snapshotMs' | 'poseMs' | 'clockControlMs'): number =>
+    frames.reduce((total, frame) => total + frame[field], 0);
+  const advanceMs = sum('advanceMs');
+  const snapshotMs = sum('snapshotMs');
+  const poseMs = sum('poseMs');
+  const clockControlMs = sum('clockControlMs');
+  return {
+    skeleton: prepared.skeleton, arm: prepared.arm, instances: prepared.instances,
+    timingProtocol: 'gpu-complete-v2', measuredFrames, splitFirst,
+    poserCounts: prepared.poserCounts!(), baseline, frames,
+    totals: { advanceMs, snapshotMs, poseMs, clockControlMs },
+    snapshotShare: snapshotShare(snapshotMs, poseMs),
+    verdict: premiseVerdict(snapshotMs, poseMs),
+    // Sensitivity report only: no overhead-corrected performance claim.
+    shareAfterWholeClockControl: Math.max(0, snapshotMs - clockControlMs) / poseMs,
+    overhead: 'Three timer reads per instance; no costs subtracted from raw figures. Compare baseline poseP50Ms with split pose samples; clock control is a sensitivity estimate, not a proven overhead bound.',
+  };
 }
 
 export async function collectPreparedRuns(
@@ -1441,6 +1524,7 @@ export async function runSameFramePair(
     };
     return {
       mode: 'same-frame-ab-v1', skeleton, instances, arms, warmupFrames: warmup, measuredFrames: count,
+      poserCounts: prepared.map(stage => stage.poserCounts?.() ?? null),
       gpuStatus, gpuSamplesMs: gpuSamples, halves, frames: rows,
       cpuPairedDifference: summary(deltas),
       gpuPairedDifference: gpuStatus === 'available' ? summary(gpuSamples.map(s => s[1]! - s[0]!)) : null,
@@ -1477,11 +1561,13 @@ export interface RigBenchHarness {
   getGpuInfo: typeof getGpuInfo;
   verifyAssets: typeof verifyAssets;
   registerCompareBundle: typeof registerCompareBundle;
+  useCompareAsPrimary: typeof useCompareAsPrimary;
   checkCorrectness: typeof checkCorrectness;
   measureLoadToFirstFrame: typeof measureLoadToFirstFrame;
   prepareBenchmarkStage: typeof prepareBenchmarkStage;
   activatePreparedStage: typeof activatePreparedStage;
   runPreparedFrames: typeof runPreparedFrames;
+  runPreparedPoseSplit: typeof runPreparedPoseSplit;
   collectPreparedRuns: typeof collectPreparedRuns;
   runInterleavedArmBatch: typeof runInterleavedArmBatch;
   checkDrawCallMutants: typeof checkDrawCallMutants;
@@ -1500,11 +1586,13 @@ window.__rigBench = {
   getGpuInfo,
   verifyAssets,
   registerCompareBundle,
+  useCompareAsPrimary,
   checkCorrectness,
   measureLoadToFirstFrame,
   prepareBenchmarkStage,
   activatePreparedStage,
   runPreparedFrames,
+  runPreparedPoseSplit,
   collectPreparedRuns,
   runInterleavedArmBatch,
   checkDrawCallMutants,

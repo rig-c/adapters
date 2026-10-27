@@ -311,8 +311,7 @@ export function verifyBenchDiskAssets(benchDir, skeletons = ['spineboy', 'raptor
 }
 
 export function verifyRefusalMutantOnDisk() {
-  const tmpDir = resolve(root, 'node_modules/.cache/bench-refusal-mutant');
-  rmSync(tmpDir, { recursive: true, force: true });
+  const tmpDir = mkdtempSync(join(tmpdir(), 'bench-refusal-mutant-'));
   mkdirSync(join(tmpDir, 'spineboy'), { recursive: true });
   writeFileSync(join(tmpDir, 'manifest.json'), '{}\n');
   writeFileSync(join(tmpDir, 'spineboy/spineboy-pro.json'), '{}\n');
@@ -337,9 +336,7 @@ export function verifyRefusalMutantOnDisk() {
 }
 
 async function measureBundles() {
-  const tmpDir = resolve(root, 'node_modules/.cache/bench-bundles');
-  rmSync(tmpDir, { recursive: true, force: true });
-  mkdirSync(tmpDir, { recursive: true });
+  const tmpDir = mkdtempSync(join(tmpdir(), 'bench-bundles-'));
 
   const spineEntryPath = join(tmpDir, 'spine-entry.ts');
   const rigEntryPath = join(tmpDir, 'rig-entry.ts');
@@ -356,7 +353,7 @@ async function measureBundles() {
   );
   writeFileSync(
     rigEntryPath,
-    `export { loadModel, RigPlayer } from '@rig-c/play';
+    `export { loadModel, RigPlayer } from ${JSON.stringify(resolve(root, 'node_modules/@rig-c/play/dist/index.js'))};
 export { PixiRenderer, PixiRig } from ${JSON.stringify(resolve(root, 'packages/pixi/src/index.ts'))};\n`,
   );
 
@@ -666,7 +663,9 @@ export async function runBenchmarkSuite(options = {}) {
   const compareBundleInfo = compareBundleInput
     ? await prepareCompareBundle(compareBundleInput)
     : null;
-  const arms = compareBundleInfo
+  const arms = options.officialControl
+    ? ['spine-pixi-v8', 'rig-c-pixi-compare']
+    : compareBundleInfo
     ? ['rig-c-pixi', 'rig-c-pixi-compare']
     : ['spine-pixi-v8', 'rig-c-pixi'];
 
@@ -692,7 +691,7 @@ export async function runBenchmarkSuite(options = {}) {
     throw new Error(`BENCH_HYGIENE_VIOLATION: public/bench files are tracked in git:\n${trackedBenchFiles}`);
   }
 
-  const bundles = await measureBundles();
+  const bundles = options.poseSplit ? null : await measureBundles();
   if (compareBundleInfo) {
     bundles['rig-c-pixi-compare'] = {
       adapterAndRuntime: compareBundleInfo.adapterAndRuntime,
@@ -735,6 +734,7 @@ export async function runBenchmarkSuite(options = {}) {
         { code: compareBundleInfo.browserCode, label: compareBundleInfo.sourcePath },
       );
     }
+    if (options.compareControl) await page.evaluate(() => window.__rigBench.useCompareAsPrimary(true));
 
     const gpu = await page.evaluate(() => window.__rigBench.getGpuInfo());
 
@@ -800,6 +800,34 @@ export async function runBenchmarkSuite(options = {}) {
         : { positive, mutant };
     }
 
+    if (options.poseSplit) {
+      const drawCallMutants = await page.evaluate(() => window.__rigBench.checkDrawCallMutants());
+      if (!drawCallMutants.pass) throw new Error('BENCH_MUTANT_SURVIVED: draw-call controls');
+      const rows = [];
+      for (const skeleton of skeletons) for (const instances of instanceCounts) {
+        for (let run = 0; run < runs; run++) {
+          await page.evaluate(
+            ({ skeleton, instances, warmupFrames }) => window.__rigBench.prepareBenchmarkStage(skeleton, 'rig-c-pixi', instances, warmupFrames, '/bench', { snapshotOnly: true }),
+            { skeleton, instances, warmupFrames },
+          );
+          const row = await page.evaluate(
+            ({ measuredFrames, run }) => window.__rigBench.runPreparedPoseSplit(measuredFrames, run % 2 === 1),
+            { measuredFrames, run },
+          );
+          rows.push({ run, ...row });
+          await page.evaluate(() => window.__rigBench.disposePreparedStage());
+        }
+      }
+      return {
+        mode: 'pose-split-v1', rows, correctness, drawCallMutants,
+        machine: { platform: platform(), release: release(), arch: arch(), browser: browser.version(), ...gpu, chromiumArgs: [...BENCH_CHROMIUM_ARGS] },
+        assets: manifest.skeletons, rigcVersion: manifest.rigcTag, spineRuntimesRef: manifest.spineRuntimesRef,
+        playVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/@rig-c/play/package.json'), 'utf8')).version,
+        hygiene: { diskRefusalMutant, browserRefusalMutant },
+        threshold: 0.1,
+      };
+    }
+
     if (options.sameFrame) {
       const drawCallMutants = await page.evaluate(() => window.__rigBench.checkDrawCallMutants());
       if (!drawCallMutants.pass) throw new Error('BENCH_MUTANT_SURVIVED: draw-call controls');
@@ -817,6 +845,11 @@ export async function runBenchmarkSuite(options = {}) {
       }
       return {
         mode: 'same-frame-ab-v1', arms, rows, correctness, drawCallMutants,
+        liveFrameChecks: arms.includes('rig-c-pixi') && !options.compareControl ? false : null,
+        framePaths: Object.fromEntries(arms.map(arm => [arm, arm === 'spine-pixi-v8' ? 'official'
+          : arm === 'rig-c-pixi-compare' || options.compareControl ? 'snapshot' : 'live'])),
+        compareAsPrimary: Boolean(options.compareControl),
+        officialControl: Boolean(options.officialControl),
         machine: { platform: platform(), release: release(), arch: arch(), browser: browser.version(), ...gpu, chromiumArgs: [...BENCH_CHROMIUM_ARGS] },
         assets: manifest.skeletons, rigcVersion: manifest.rigcTag, spineRuntimesRef: manifest.spineRuntimesRef,
         pixiVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/pixi.js/package.json'), 'utf8')).version,
@@ -975,7 +1008,8 @@ export async function runBenchmarkSuite(options = {}) {
     }
     const bar1SyntheticMutant = evaluateBar1DrawCalls(
       frameRows.map((r) =>
-        r.arm === 'rig-c-pixi' ? { ...r, drawCallsPerFrame: r.drawCallsPerFrame + 10 } : r,
+        r.arm === 'rig-c-pixi' || r.arm === 'rig-c-pixi-compare'
+          ? { ...r, drawCallsPerFrame: r.drawCallsPerFrame + 10 } : r,
       ),
       skeletons,
     );
@@ -1063,6 +1097,11 @@ export async function runBenchmarkSuite(options = {}) {
       interleaving: 'ABAB',
       arms,
       host: 'pixi',
+      compareAsPrimary: Boolean(options.compareControl),
+      officialControl: Boolean(options.officialControl),
+      liveFrameChecks: arms.includes('rig-c-pixi') && !options.compareControl ? false : null,
+      framePaths: Object.fromEntries(arms.map(arm => [arm, arm === 'spine-pixi-v8' ? 'official'
+        : arm === 'rig-c-pixi-compare' || options.compareControl ? 'snapshot' : 'live'])),
       measuredCommit: headSha || 'unknown',
       pixiVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/pixi.js/package.json'), 'utf8')).version,
       playVersion: JSON.parse(readFileSync(resolve(root, 'node_modules/@rig-c/play/package.json'), 'utf8')).version,
@@ -1367,8 +1406,13 @@ export function formatResultsMarkdown(report, reproReport) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--pose-split') && (args.includes('--same-frame') || args.includes('--check-repro') || args.some(arg => arg.startsWith('--compare-bundle')))) {
+    throw new Error('BENCH_POSE_SPLIT: pose split cannot be combined with same-frame, repro or compare-bundle modes');
+  }
   const timingProtocol = parseTimingProtocolArgs(args);
   const compareBundle = parseCompareBundleArgs(args);
+  if (args.includes('--compare-control') && !compareBundle) throw new Error('BENCH_COMPARE_CONTROL: --compare-control needs --compare-bundle');
+  if (args.includes('--official-control') && (!compareBundle || args.includes('--compare-control'))) throw new Error('BENCH_OFFICIAL_CONTROL: needs --compare-bundle without --compare-control');
   if (args.includes('--same-frame') && (args.includes('--check-repro') || args.some(a => a.startsWith('--timing-protocol')))) throw new Error('BENCH_SAME_FRAME: --check-repro and --timing-protocol do not apply; use two independent invocations');
   const isSmoke = args.includes('--smoke');
   const isJson = args.includes('--json');
@@ -1407,6 +1451,9 @@ async function main() {
   const warmupFrames = isSmoke ? 20 : 60;
 
   const report = await runBenchmarkSuite({
+    poseSplit: args.includes('--pose-split'),
+    compareControl: args.includes('--compare-control'),
+    officialControl: args.includes('--official-control'),
     timingProtocol,
     sameFrame: args.includes('--same-frame'),
     compareBundle,
@@ -1418,6 +1465,10 @@ async function main() {
     checkRepro,
   });
 
+  if (args.includes('--pose-split')) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
   if (args.includes('--same-frame')) {
     const output = isJson ? JSON.stringify(report, null, 2) : formatSameFrameMarkdown(report);
     if (writeResultsPath) writeFileSync(writeResultsPath, formatSameFrameMarkdown(report));
