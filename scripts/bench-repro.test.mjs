@@ -52,3 +52,44 @@ test('kills a restored denominator-floor mutant in memory', () => {
   expect(evaluateMutant([row(0.5)], [row(0.625)]).pass).toBe(true);
   expect(() => assertSmallDrift(evaluateMutant)).toThrow();
 });
+
+// Execute the real orchestration with deterministic host/timer doubles, without a GPU.
+function preparedCollector() {
+  const source = readFileSync(new URL('../bench/main.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function collectPreparedRuns(');
+  const end = source.indexOf('\nexport async function runInterleavedArmBatch(', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end));
+  return new Function('activePreparedStage', 'getRenderer', 'parseTimingProtocol',
+    'DEFAULT_TIMING_PROTOCOL', 'window', 'runPreparedFrames', 'summarizeFrameBatch',
+    `${compiled.replace('export ', '')}; return collectPreparedRuns;`);
+}
+
+for (const options of [{}, { skipPreWarmup: true, settleFrames: 4 }]) {
+  test(`repro collects complete sequential passes with equal warmup ${JSON.stringify(options)}`, async () => {
+    const events = [];
+    let poses = 0;
+    const prepared = { poseAll: () => { poses++; }, drawAll: () => {} };
+    const counters = { reset() {}, drawCalls: 0, triangles: 0 };
+    const collect = preparedCollector()(prepared,
+      async () => ({ renderer: { gl: { finish() {} } }, counters }),
+      parseTimingProtocol, 'gpu-complete-v2', { gc: () => events.push('gc') },
+      async (frames, protocol) => {
+        events.push(`batch:${poses}:${frames}:${protocol}`);
+        return { batch: events.length };
+      }, () => { throw new Error('interleaved frame summarization'); });
+    const result = await collect(2, 3, true, 'gpu-complete-v2', options);
+    const warmup = options.skipPreWarmup ? 4 : 45;
+    const expected = [];
+    for (const pass of [1, 2]) {
+      if (!options.skipPreWarmup) expected.push('gc', 'gc');
+      expected.push(`batch:${warmup * pass}:3:gpu-complete-v2`,
+        `batch:${warmup * pass}:3:gpu-complete-v2`);
+    }
+    expect(events).toEqual(expected);
+    expect(result.set1).toHaveLength(2);
+    expect(result.set2).toHaveLength(2);
+    expect(result.set1[1].batch).toBeLessThan(result.set2[0].batch);
+  });
+}

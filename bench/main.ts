@@ -1197,77 +1197,37 @@ export async function collectPreparedRuns(
     throw new Error('BENCH_STAGE_NOT_PREPARED: call prepareBenchmarkStage() before collectPreparedRuns()');
   }
   const prepared = activePreparedStage;
-  const { renderer, counters } = await getRenderer();
+  const { renderer } = await getRenderer();
   const gl = renderer.gl;
   const dt = 1 / 60;
-
-  if (!options.skipPreWarmup) {
-    const winWithGc = window as Window & { gc?: () => void };
-    if (typeof winWithGc.gc === 'function') {
-      winWithGc.gc();
-      winWithGc.gc();
-    }
-    // Keep CPU P-core frequency and GPU command queue in steady state right after GC
-    for (let w = 0; w < 45; w++) {
-      prepared.poseAll(dt);
-      prepared.drawAll();
-    }
-  } else {
-    const settleFrames = options.settleFrames ?? 0;
-    for (let w = 0; w < settleFrames; w++) {
-      prepared.poseAll(dt);
-      prepared.drawAll();
-    }
-  }
-
-  if (timingProtocol === 'gpu-complete-v2') {
-    gl.finish();
-  }
   const set1: FrameBatchResult[] = [];
   const set2: FrameBatchResult[] = [];
-  for (let r = 0; r < runs; r++) {
-    if (!checkRepro) {
-      set1.push(await runPreparedFrames(measuredFrames, timingProtocol));
-    } else {
-      const times1: number[] = new Array<number>(measuredFrames);
-      const pose1: number[] = new Array<number>(measuredFrames);
-      const draw1: number[] = new Array<number>(measuredFrames);
-      const times2: number[] = new Array<number>(measuredFrames);
-      const pose2: number[] = new Array<number>(measuredFrames);
-      const draw2: number[] = new Array<number>(measuredFrames);
-      let drawCalls1 = 0;
-      let triangles1 = 0;
-      let drawCalls2 = 0;
-      let triangles2 = 0;
-      for (let f = 0; f < measuredFrames; f++) {
-        counters.reset();
-        const t10 = performance.now();
-        prepared.poseAll(dt);
-        const t11 = performance.now();
-        prepared.drawAll();
-        if (timingProtocol === 'gpu-complete-v2') gl.finish();
-        const t12 = performance.now();
-        pose1[f] = t11 - t10;
-        draw1[f] = t12 - t11;
-        times1[f] = t12 - t10;
-        drawCalls1 += counters.drawCalls;
-        triangles1 += counters.triangles;
-
-        counters.reset();
-        const t20 = performance.now();
-        prepared.poseAll(dt);
-        const t21 = performance.now();
-        prepared.drawAll();
-        if (timingProtocol === 'gpu-complete-v2') gl.finish();
-        const t22 = performance.now();
-        pose2[f] = t21 - t20;
-        draw2[f] = t22 - t21;
-        times2[f] = t22 - t20;
-        drawCalls2 += counters.drawCalls;
-        triangles2 += counters.triangles;
+  // Reproducibility compares complete passes, each with the same warm-up.
+  for (const set of checkRepro ? [set1, set2] : [set1]) {
+    if (!options.skipPreWarmup) {
+      const winWithGc = window as Window & { gc?: () => void };
+      if (typeof winWithGc.gc === 'function') {
+        winWithGc.gc();
+        winWithGc.gc();
       }
-      set1.push(summarizeFrameBatch(prepared, times1, pose1, draw1, drawCalls1, triangles1, timingProtocol));
-      set2.push(summarizeFrameBatch(prepared, times2, pose2, draw2, drawCalls2, triangles2, timingProtocol));
+      // Keep CPU P-core frequency and GPU command queue in steady state right after GC
+      for (let w = 0; w < 45; w++) {
+        prepared.poseAll(dt);
+        prepared.drawAll();
+      }
+    } else {
+      const settleFrames = options.settleFrames ?? 0;
+      for (let w = 0; w < settleFrames; w++) {
+        prepared.poseAll(dt);
+        prepared.drawAll();
+      }
+    }
+
+    if (timingProtocol === 'gpu-complete-v2') {
+      gl.finish();
+    }
+    for (let r = 0; r < runs; r++) {
+      set.push(await runPreparedFrames(measuredFrames, timingProtocol));
     }
   }
   gl.finish();
