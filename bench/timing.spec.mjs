@@ -669,3 +669,46 @@ test('isolated pairs finish each original-viewport arm; missing completion is de
     } finally {await page.close();}
   }
 });
+
+
+for (const arm of ['spine-pixi-v8', 'rig-c-pixi']) {
+  test(`timed load model request count: ${arm}`, async ({ page }) => {
+    await page.goto('/bench/index.html');
+    await page.waitForFunction(() => Boolean(window.__rigBench));
+    const requests = [];
+    const capture = request => {
+      const url = new URL(request.url());
+      if (url.pathname === '/bench/spineboy/skeleton.model.json' ||
+          url.pathname === '/bench/spineboy/spineboy-pro.json') requests.push(url.pathname);
+    };
+    page.on('request', capture);
+    try {
+      await page.evaluate(arm => window.__rigBench.measureLoadToFirstFrame('spineboy', arm), arm);
+    } finally {
+      page.off('request', capture);
+    }
+    const modelPath = arm === 'rig-c-pixi'
+      ? '/bench/spineboy/skeleton.model.json' : '/bench/spineboy/spineboy-pro.json';
+    console.log(JSON.stringify({ arm, requests }));
+    expect(requests).toEqual([modelPath]);
+  });
+}
+
+test('timed load missing model is refused by name', async ({ page }) => {
+  await page.route('**/bench/spineboy/skeleton.model.json?*', route =>
+    route.fulfill({ status: 404, contentType: 'text/plain', body: 'missing model' }));
+  await page.goto('/bench/index.html');
+  await page.waitForFunction(() => Boolean(window.__rigBench));
+  const message = await page.evaluate(async () => {
+    try {
+      await window.__rigBench.measureLoadToFirstFrame('spineboy', 'rig-c-pixi');
+      return null;
+    } catch (error) {
+      return error.message;
+    }
+  });
+  console.log(JSON.stringify({ missingModelMessage: message }));
+  expect(message).toMatch(/^BENCH_ASSET_MISSING: spineboy \(\/bench\/spineboy\/skeleton\.model\.json\?cb=load-spineboy-rig-c-pixi-/);
+  expect(message).toContain('404');
+  expect(message).toContain('run "bash scripts/fetch-assets.sh"');
+});
