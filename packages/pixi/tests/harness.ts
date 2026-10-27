@@ -12,6 +12,8 @@ import {
   type SlotFilter,
 } from '@rig-c/play';
 import { Container, Mesh, type MeshGeometry, Sprite, Ticker, WebGLRenderer } from 'pixi.js';
+import * as PixiNamespace from 'pixi.js';
+import type { LiveFrame, LiveNumbers } from '@rig-c/play';
 
 import {
   BLEND_PIXI,
@@ -1840,6 +1842,9 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
 }
 
 const harness = {
+  oracleRetentionProbe,
+  liveLeaseProbe,
+  livePictureProbe,
   BLEND_PIXI,
   inspectRigSlots,
   geometryProbe,
@@ -1861,3 +1866,183 @@ declare global {
 }
 
 window.rigAdaptersHarness = harness;
+
+async function oracleRetentionProbe(rigName: string) {
+  const assets = await getAssets(rigName);
+  const rig = new PixiRig(assets, { ticker: null, autoUpdate: false, poser: 'oracle', liveFrameChecks: true });
+  try {
+    rig.play(rigName === 'figure' ? 'mask' : defaultAnimationFor(assets));
+    rig.advance(0.125);
+    const drawn = rig.drawnFrame();
+    const saved = JSON.stringify(drawn);
+    const equalCurrent = saved === JSON.stringify(rig.player.posedFrame());
+    const live = rig.player.liveFrame();
+    const vertices = live.vertices;
+    const before = rig.children.slice();
+    rig.player.seek(0.7);
+    const retainedLastDraw = rig.drawnFrame() === drawn && JSON.stringify(rig.drawnFrame()) === saved;
+    let staleRefused = false, nestedStale = false;
+    try { rig.renderer.render(live); } catch (error) { staleRefused = String(error).includes('LIVE_FRAME_STALE'); }
+    try { void vertices[0]; } catch (error) { nestedStale = String(error).includes('LIVE_FRAME_STALE'); }
+    const unchangedScene = before.length === rig.children.length && before.every((view, i) => view === rig.children[i]);
+    rig.advance(1 / 60);
+    return { poser: rig.player.poser, equalCurrent, retainedLastDraw, staleRefused, nestedStale, unchangedScene,
+      retainedAfterNextDraw: JSON.stringify(drawn) === saved,
+      nextEqualCurrent: JSON.stringify(rig.drawnFrame()) === JSON.stringify(rig.player.posedFrame()) };
+  } finally { rig.destroy(); }
+}
+
+async function liveLeaseProbe(options: { rigName: string; checked: boolean; mutant?: 'snapshot' | 'buffers' | 'last-drawn' | 'fresh-lease' | 'metadata-cache' }) {
+  const assets = await loadModel({ modelUrl: `/bench/${options.rigName}/skeleton.model.json`, regions: 'none', setsUrl: null });
+  const rig = new PixiRig(assets, { ticker: null, autoUpdate: false, liveFrameChecks: options.checked });
+  try {
+    rig.play('walk', { loop: true });
+    const duration = assets.animations.find(a => a.name === 'walk')!.duration;
+    for (let i = 0; i <= Math.ceil(duration * 60); i++) rig.advance(1 / 60);
+    const poser = rig.player.poser;
+    const meshes = rig.children.filter((child): child is Mesh<MeshGeometry> => child instanceof Mesh);
+    const buffers = meshes.map(mesh => [mesh.geometry.positions, mesh.geometry.uvs, mesh.geometry.indices]);
+    const snapshot = rig.player.posedFrame.bind(rig.player);
+    let snapshotCalls = 0;
+    rig.player.posedFrame = () => { snapshotCalls++; throw new Error('HOT_LOOP_SNAPSHOT'); };
+    let hotError: string | null = null;
+    try {
+      rig.play('walk', { loop: true });
+      for (let i = 0; i < 20; i++) {
+        rig.advance(1 / 60);
+        rig.seek((i + 1) / 60);
+        if (options.mutant === 'snapshot') rig.player.posedFrame();
+        if (options.mutant === 'buffers') for (const mesh of meshes) mesh.geometry.positions = new Float32Array(mesh.geometry.positions);
+      }
+    } catch (error) { hotError = error instanceof Error ? error.message : String(error); }
+    finally { rig.player.posedFrame = snapshot; }
+    const stableBuffers = meshes.every((mesh, i) => buffers[i][0] === mesh.geometry.positions && buffers[i][1] === mesh.geometry.uvs && buffers[i][2] === mesh.geometry.indices);
+    let staticIndexReads = 0;
+    const watched = (source: LiveNumbers): LiveNumbers => new Proxy(source, { get(target, property) {
+      if (typeof property === 'string' && /^\d+$/.test(property)) staticIndexReads++;
+      return Reflect.get(target, property, target);
+    } });
+    const raw = rig.player.liveFrame();
+    const tracked: LiveFrame = { generation: raw.generation, count: raw.count,
+      drawOrder: raw.drawOrder, vertices: raw.vertices, tint: raw.tint,
+      attachments: raw.attachments.map(a => ({ ...a, uvs: watched(a.uvs), triangles: watched(a.triangles) })),
+    };
+    rig.renderer.render(tracked);
+    const firstStaticIndexReads = staticIndexReads;
+    staticIndexReads = 0;
+    rig.renderer.alwaysReuploadGeometry = options.mutant === 'metadata-cache';
+    rig.renderer.render(tracked);
+    rig.renderer.alwaysReuploadGeometry = false;
+    const repeatedStaticIndexReads = staticIndexReads;
+    const current = snapshot();
+    const drawn = rig.drawnFrame();
+    const equalCurrent = JSON.stringify(drawn) === JSON.stringify(current);
+    const saved = JSON.stringify(drawn);
+    if (options.mutant === 'last-drawn') rig.drawnFrame = () => rig.player.posedFrame();
+    rig.player.advance(0.137);
+    const lastDrawSurvivesDirectMutation = JSON.stringify(rig.drawnFrame()) === saved;
+    rig.advance(1 / 60);
+    const retainedSurvivesNextDraw = JSON.stringify(drawn) === saved;
+    const explicit = rig.draw();
+    const explicitSnapshotIdentity = rig.drawnFrame() === explicit;
+    const lease = rig.player.liveFrame();
+    const vertices = lease.vertices;
+    const tint = lease.tint;
+    const metadata = lease.attachments[lease.drawOrder[0]];
+    const uvs = metadata.uvs;
+    let readonlyRefused = false;
+    if (options.checked) {
+      try { void (vertices as unknown as { buffer: unknown }).buffer; }
+      catch (error) { readonlyRefused = String(error).includes('LIVE_FRAME_READONLY'); }
+    }
+    rig.player.advance(1 / 60);
+    const sceneState = (): string => JSON.stringify({
+      resources: rig.resourceCounts(), uploads: [rig.renderer.positionUploadCount, rig.renderer.geometryUploadCount],
+      views: rig.children.map(child => ({ label: child.label, x: child.position.x, y: child.position.y,
+        positions: child instanceof Mesh ? Array.from((child as Mesh<MeshGeometry>).geometry.positions) : null })),
+    });
+    const before = sceneState();
+    let staleRefused = false;
+    try { rig.renderer.render(options.mutant === 'fresh-lease' ? rig.player.liveFrame() : lease); }
+    catch (error) { staleRefused = String(error).includes('LIVE_FRAME_STALE'); }
+    const sceneUnchanged = before === sceneState();
+    const stale = (read: () => unknown): boolean => {
+      try { read(); return false; } catch (error) { return String(error).includes('LIVE_FRAME_STALE'); }
+    };
+    const nestedStale = options.checked ? [() => vertices[0], () => tint[0], () => uvs[0], () => metadata.page].every(stale) : null;
+    let colorInvalidates = false;
+    if (options.checked) {
+      const colorLease = rig.player.liveFrame();
+      rig.player.color[0] *= 0.5;
+      rig.player.liveFrame();
+      colorInvalidates = stale(() => colorLease.tint[0]);
+    }
+    return { poser, meshCount: meshes.length, snapshotCalls, hotError, stableBuffers, equalCurrent,
+      firstStaticIndexReads, repeatedStaticIndexReads,
+      lastDrawSurvivesDirectMutation, retainedSurvivesNextDraw, explicitSnapshotIdentity,
+      readonlyRefused, staleRefused, sceneUnchanged, nestedStale, colorInvalidates };
+  } finally { rig.destroy(); assets.dispose(); }
+}
+
+async function livePictureProbe(options: { rigName: string; animation?: string; time: number; pma?: boolean; poser?: 'auto' | 'oracle';
+  originCode?: string; mutant?: 'vertices' | 'clip' | 'dark' | 'pma' | 'order' }) {
+  const publicBench = options.rigName === 'spineboy' || options.rigName === 'raptor';
+  const baseAssets = publicBench
+    ? await loadModel({ modelUrl: `/bench/${options.rigName}/skeleton.model.json`, regions: 'none', setsUrl: null })
+    : await getAssets(options.rigName);
+  const assets = options.pma ? { ...baseAssets, pageImages: await getPmaTwinPages(options.rigName, baseAssets) } : baseAssets;
+  const player = new RigPlayer(document.createElement('div'), baseAssets, { mode: 'canvas', poser: options.poser ?? 'oracle', liveFrameChecks: true });
+  const animation = options.animation ?? defaultAnimationFor(baseAssets);
+  player.play(animation, { loop: true }); player.seek(options.time);
+  const original = player.posedFrame();
+  const snapshot: PosedFrame = options.pma ? { order: original.order.map(slot => ({ ...slot, pma: true })) } : original;
+  const borrowed = player.liveFrame();
+  let live: LiveFrame = borrowed;
+  if (options.pma || options.mutant) {
+    const vertices = new Float64Array(borrowed.vertices.length);
+    for (let i = 0; i < vertices.length; i++) vertices[i] = borrowed.vertices[i] + (options.mutant === 'vertices' && i % 2 === 0 ? 20 : 0);
+    const drawOrder = new Int32Array(borrowed.count);
+    for (let i = 0; i < drawOrder.length; i++) drawOrder[i] = borrowed.drawOrder[options.mutant === 'order' ? drawOrder.length - 1 - i : i];
+    const attachments = borrowed.attachments.map(a => ({ ...a,
+      pma: options.mutant === 'pma' ? false : options.pma ? true : a.pma,
+      clip: options.mutant === 'clip' ? null : a.clip, dark: options.mutant === 'dark' ? null : a.dark,
+    }));
+    live = { generation: borrowed.generation, count: borrowed.count, vertices, drawOrder, tint: borrowed.tint, attachments };
+  }
+  let OldRenderer = PixiRenderer;
+  let revoke = '';
+  if (options.originCode) {
+    (globalThis as typeof globalThis & { __rigAdaptersPixi?: typeof PixiNamespace }).__rigAdaptersPixi = PixiNamespace;
+    revoke = URL.createObjectURL(new Blob([options.originCode], { type: 'text/javascript' }));
+    const module = await import(/* @vite-ignore */ revoke) as { PixiRenderer: typeof PixiRenderer };
+    OldRenderer = module.PixiRenderer;
+  }
+  const bounds = computeFrameBounds([snapshot]);
+  const gl = await getPixiGl(bounds.width, bounds.height);
+  const pixels = (): Uint8Array => {
+    const result = new Uint8Array(bounds.width * bounds.height * 4);
+    gl.gl.finish(); gl.gl.readPixels(0, 0, bounds.width, bounds.height, gl.gl.RGBA, gl.gl.UNSIGNED_BYTE, result);
+    return result;
+  };
+  const stage = new Container();
+  const root = new Container(); root.position.set(-bounds.left, bounds.topWorld); stage.addChild(root);
+  const old = new OldRenderer(root, assets);
+  const renderer = new PixiRenderer(root, assets);
+  try {
+    old.render(snapshot); gl.render({ container: stage }); const expected = pixels();
+    // Release old scene objects before the live renderer owns this root.
+    old.dispose();
+    renderer.render(live); gl.render({ container: stage }); const actual = pixels();
+    let byteDifferences = 0, contentPixels = 0;
+    for (let i = 0; i < actual.length; i++) if (actual[i] !== expected[i]) byteDifferences++;
+    for (let i = 3; i < expected.length; i += 4) if (expected[i] !== 0) contentPixels++;
+    return { byteDifferences, contentPixels, poser: player.poser, order: snapshot.order.length,
+      clips: snapshot.order.filter(slot => slot.clip).length, darks: snapshot.order.filter(slot => slot.dark).length,
+      blends: Array.from(new Set(snapshot.order.map(slot => slot.blend))), pma: options.pma ?? false,
+      originBaseline: Boolean(options.originCode) };
+  } finally {
+    old.dispose(); renderer.dispose(); stage.destroy({ children: true }); player.dispose();
+    if (publicBench) baseAssets.dispose();
+    if (revoke) URL.revokeObjectURL(revoke);
+  }
+}

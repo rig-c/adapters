@@ -7,7 +7,7 @@
       "dependencies": {
         "@rig-c/phaser": "workspace:*",
         "@rig-c/pixi": "workspace:*",
-        "@rig-c/play": "1.12.0",
+        "@rig-c/play": "1.20.0",
         "@rig-c/three": "workspace:*",
         "phaser": "4.2.1",
         "pixi.js": "8.22.0",
@@ -40,12 +40,12 @@
     },
     "packages/pixi": {
       "name": "@rig-c/pixi",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@rig-c/adapters-shared": "workspace:*",
       },
       "peerDependencies": {
-        "@rig-c/play": "^1.10.0",
+        "@rig-c/play": "^1.20.0",
         "pixi.js": "^8.0.0",
       },
     },
@@ -217,7 +217,7 @@
 
     "@rig-c/pixi": ["@rig-c/pixi@workspace:packages/pixi"],
 
-    "@rig-c/play": ["@rig-c/play@1.12.0", "", {}, "sha512-kEHNtYnOEnx78T9MqjLZzpFqqVrQiGCjkK++4TvoYMDD4qB9YrP3CaDRvlIEVYBAvRWDgFMw5XL4egRWFcYLCQ=="],
+    "@rig-c/play": ["@rig-c/play@1.20.0", "", {}, "sha512-2U1ze8Jy3SZPi0k5Ool6zIhfwp5c5GCabwJfw0FPeDDwfNSgnUapXhhnsPncFwWNOGlwose70JruxQ4MpYXB6Q=="],
 
     "@rig-c/three": ["@rig-c/three@workspace:packages/three"],
 

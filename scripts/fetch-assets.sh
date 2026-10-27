@@ -12,7 +12,7 @@
 set -euo pipefail
 
 RIGC_TAG="v2.64.1"
-PLAY_TAG="v1.12.0"
+PLAY_TAG="v1.20.0"
 GALLERY_RIGS="walk flex ride"
 TEST_RIGS="figure glow duo turned"
 
