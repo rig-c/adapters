@@ -1,9 +1,9 @@
 import { parseTimingProtocol, parseTimingProtocolArgs, assertTimingProtocolRows, timingProtocolDescription } from '../bench/timing-protocol.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { arch, cpus, platform, release, totalmem } from 'node:os';
+import { arch, cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { chromium } from '@playwright/test';
@@ -112,12 +112,7 @@ function hasNamedExports(esmText, names) {
 
 export async function prepareCompareBundle(compareBundleInput) {
   const entryFile = resolveCompareBundleEntry(compareBundleInput);
-  const tmpDir = resolve(
-    root,
-    `node_modules/.cache/bench-compare-${process.pid}-${Date.now()}`,
-  );
-  rmSync(tmpDir, { recursive: true, force: true });
-  mkdirSync(tmpDir, { recursive: true });
+  const tmpDir = mkdtempSync(join(tmpdir(), 'bench-compare-'));
 
   const buildEsm = async (entryPath, external, plugins = [], aliasPlayTarget = null, shimPixiPath = null) => {
     let buf;

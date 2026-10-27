@@ -7,7 +7,7 @@ fs.mkdirSync(results,{recursive:true});
 http.createServer((req,res)=>{
  res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Embedder-Policy','require-corp');res.setHeader('Cache-Control','no-store');
  const url=new URL(req.url,'http://localhost');
- if(req.method==='POST' && /^\/result\/(precheck|AA1|AA2|AB1|AB2)$/.test(url.pathname)){
+ if(req.method==='POST' && /^\/result\/(precheck|(?:AA|AB)[1-6])$/.test(url.pathname)){
   let data='';req.on('data',c=>{data+=c;if(data.length>10000000)req.destroy();});req.on('end',()=>{
    try { const record=JSON.parse(data);fs.writeFileSync(path.join(results,url.pathname.split('/').at(-1)+'.json'),JSON.stringify(record,null,2));res.end('saved');console.log('HARDWARE_RESULT',record.phase,record.status); }
    catch(e){res.statusCode=400;res.end(String(e));}

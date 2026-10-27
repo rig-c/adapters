@@ -5,7 +5,10 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { prepareCompareBundle } from './bench.mjs';
-const out = resolve('test-results/hardware-bench');
+import { captureProtocols } from './hardware-protocol.mjs';
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== '--out' || !args[1])) throw Error('HARDWARE_PREPARE_ARGS: expected --out directory');
+const out = resolve(args[1] ?? 'test-results/hardware-bench');
 const site = resolve(out, 'site');
 mkdirSync(site, { recursive: true });
 for (const [name,play,core] of [['old','1.17.1','2.70.0'],['new','1.18.0','2.72.0']]) {
@@ -18,7 +21,7 @@ const old = resolve(out, 'old/node_modules/@rig-c/play/dist/index.js');
 const newer = resolve(out, 'new/node_modules/@rig-c/play/dist/index.js');
 const oracle = createRequire(resolve('tests/oracle/package.json'));
 const source = readFileSync('bench/main.ts', 'utf8');
-const manifest = { protocol: 'hardware-same-frame-v1', sourceSha256: hash(source), dependencies: {}, assets: JSON.parse(readFileSync('public/bench/manifest.json')), bundles: {} };
+const manifest = { ...captureProtocols(), sourceSha256: hash(source), dependencies: {}, assets: JSON.parse(readFileSync('public/bench/manifest.json')), bundles: {} };
 function hash(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 for (const [name, entry] of [['old',old],['new',newer]]) {
   const dir = resolve(out, name, 'node_modules');
@@ -43,8 +46,10 @@ const bytes = new Uint8Array(await result.outputs[0].arrayBuffer());
 writeFileSync(resolve(site,'main.js'),bytes); manifest.bundles.main = hash(bytes);
 cpSync(resolve('public/bench'),resolve(site,'bench'),{recursive:true});
 cpSync(resolve('scripts/hardware-bench-client.js'),resolve(site,'client.js'));
+cpSync(resolve('scripts/hardware-fixtures.mjs'),resolve(site,'fixtures.js'));
+manifest.fixtureVerifierSha256=hash(readFileSync(resolve(site,'fixtures.js')));
 writeFileSync(resolve(site,'index.html'),'<!DOCTYPE html><meta charset="utf-8"><title>Hardware frame capture</title><body>Preparing capture<script type="module" src="/client.js"></script>');
 manifest.captureClientSha256=hash(readFileSync(resolve(site,'client.js')));
-manifest.harnessFiles=Object.fromEntries(['bench/main.ts','packages/pixi/src/pixi.ts','scripts/hardware-bench-client.js'].map(path=>[path,hash(readFileSync(path))]));
+manifest.harnessFiles=Object.fromEntries(['bench/main.ts','packages/pixi/src/pixi.ts','scripts/hardware-bench-client.js','scripts/hardware-fixtures.mjs','scripts/hardware-protocol.mjs'].map(path=>[path,hash(readFileSync(path))]));
 writeFileSync(resolve(site,'manifest.json'),JSON.stringify(manifest,null,2));
 console.log('HARDWARE_PREPARED',JSON.stringify(manifest));
