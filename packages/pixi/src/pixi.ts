@@ -454,6 +454,12 @@ export class PixiRenderer {
    * (used as the negative control for static / `timescale = 0` geometry reuse).
    */
   alwaysReuploadGeometry = false;
+  /** Validate dynamic live tuples; snapshots always retain full validation. */
+  liveFrameChecks = true;
+  private liveInput = false;
+  private livePositionsUnchanged = false;
+  private lastLiveFrame: WeakRef<LiveFrame> | null = null;
+  private lastLiveGeneration = -1;
   /**
    * When true (default), `dispose()` decrements and destroys shared page
    * `ImageSource`s when the last holder is disposed. Setting to `false` serves
@@ -563,13 +569,22 @@ export class PixiRenderer {
       throw new Error('PixiRenderer: frame.order is missing or not an array (expected PosedFrame or LiveFrame)');
     }
     if ('order' in frame) {
+      this.lastLiveFrame = null;
       this.renderOrder(frame.order, false);
       return;
     }
     // read() checks the generation before renderOrder can touch scene objects.
     try {
-      this.renderOrder(this.liveViews.read(frame), true);
+      const order = this.liveViews.read(frame);
+      const generation = frame.generation;
+      this.liveInput = true;
+      this.livePositionsUnchanged = this.lastLiveFrame?.deref() === frame && this.lastLiveGeneration === generation;
+      this.renderOrder(order, true);
+      if (this.lastLiveFrame?.deref() !== frame) this.lastLiveFrame = new WeakRef(frame);
+      this.lastLiveGeneration = generation;
     } finally {
+      this.liveInput = false;
+      this.livePositionsUnchanged = false;
       this.liveViews.release();
       this.validatedClips.clear();
       // Static UV/index references are compared only by identity. Production
@@ -872,7 +887,7 @@ export class PixiRenderer {
       const positions = new Float32Array(count);
       for (let i = 0; i < count; i += 2) {
         positions[i] = points[offset + i];
-        positions[i + 1] = -points[offset + i + 1];
+        positions[i + 1] = points[offset + i + 1];
       }
       const uvs = new Float32Array(slot.uvs.length);
       const indices = new Uint32Array(slot.triangles.length);
@@ -889,6 +904,8 @@ export class PixiRenderer {
         texture: item.texture,
         roundPixels: false,
       });
+      // Keep Y-up Float32 positions, and reflect once through the host transform.
+      mesh.scale.y = -1;
       this.meshGeometryCount++;
       this.positionUploadCount++;
       this.uvUploadCount++;
@@ -909,24 +926,38 @@ export class PixiRenderer {
       };
       this.meshPool.set(poolKey, entry);
     } else {
-      // Update world positions (Y flipped to -Y in root local space) only when
-      // vertex count or float32 coordinates change.
+      // LiveFrame has a frame generation, not per-span dirtiness. A new pose
+      // conservatively uploads each mesh; a repeated unchanged lease skips it.
       if (entry.positions.length !== count) {
         const positions = new Float32Array(count);
         for (let i = 0; i < count; i += 2) {
           positions[i] = points[offset + i];
-          positions[i + 1] = -points[offset + i + 1];
+          positions[i + 1] = points[offset + i + 1];
         }
         entry.positions = positions;
         entry.geometry.positions = positions;
         entry.verticesRef = verts;
         this.positionUploadCount++;
+      } else if (this.liveInput) {
+        if (this.alwaysReuploadGeometry || !this.livePositionsUnchanged) {
+          const positions = entry.positions;
+          // Real production typed arrays take the native conversion/copy path.
+          // Checked leases expose indexed proxies, so keep their reads checked.
+          if (points instanceof Float64Array && ArrayBuffer.isView(points)) {
+            positions.set(points.subarray(offset, offset + count));
+          } else {
+            for (let i = 0; i < count; i++) positions[i] = points[offset + i];
+          }
+          entry.geometry.getBuffer('aPosition').update();
+          this.positionUploadCount++;
+        }
+        entry.verticesRef = verts;
       } else {
         const positions = entry.positions;
         let changed = this.alwaysReuploadGeometry;
         for (let i = 0; i < count; i += 2) {
           const x = Math.fround(points[offset + i]);
-          const y = Math.fround(-points[offset + i + 1]);
+          const y = Math.fround(points[offset + i + 1]);
           if (positions[i] !== x || positions[i + 1] !== y) {
             positions[i] = x;
             positions[i + 1] = y;
@@ -1068,13 +1099,14 @@ export class PixiRenderer {
     }
     const { pageImage, pw, ph } = pageInfo;
 
-    assertFiniteTuple(slot.tint, 4, 'tint', slotName, pageName, indexed);
+    const checkDynamic = !indexed || this.liveFrameChecks;
+    if (checkDynamic) assertFiniteTuple(slot.tint, 4, 'tint', slotName, pageName, indexed);
     const tint = numberSource(slot.tint);
     const tintOffset = numberOffset(slot.tint);
 
     let darkMatrix: PixiColorMatrix | null = null;
     if (slot.dark !== undefined) {
-      assertFiniteTuple(slot.dark, 3, 'dark', slotName, pageName, indexed);
+      if (checkDynamic) assertFiniteTuple(slot.dark, 3, 'dark', slotName, pageName, indexed);
       darkMatrix = darkMatrixAt(tint, tintOffset, slot.dark);
     }
 
@@ -1095,7 +1127,7 @@ export class PixiRenderer {
     const alpha = clamp01(tint[tintOffset + 3]);
 
     if (slot.kind === 'region') {
-      assertFiniteTuple(slot.corners, 8, 'corners', slotName, pageName, indexed);
+      if (checkDynamic) assertFiniteTuple(slot.corners, 8, 'corners', slotName, pageName, indexed);
 
       const regionEntry = this.regionPool.get(poolKey);
       let texture: Texture;
@@ -1128,7 +1160,7 @@ export class PixiRenderer {
     }
 
     // slot.kind === 'mesh'
-    assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName, indexed);
+    if (checkDynamic) assertFiniteEvenArray(slot.vertices, 6, 'vertices', slotName, pageName, indexed);
     const meshEntry = this.meshPool.get(poolKey);
 
     const sameVertexCount =
@@ -1398,6 +1430,7 @@ export class PixiRig extends Container {
     }
 
     this.renderer = new PixiRenderer(this, assets);
+    this.renderer.liveFrameChecks = options.liveFrameChecks ?? false;
     if (options.renderGroup === true) {
       this.renderer.useRenderGroup = true;
     }

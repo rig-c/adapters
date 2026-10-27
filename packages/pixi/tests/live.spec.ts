@@ -54,7 +54,8 @@ test.describe('Issue #66 live-frame contract', () => {
     { rigName: 'turned', time: 0.5 },
   ];
   test('runtime and oracle: snapshot and checked live pictures are byte-identical, including clip/dark/blend/pma/order', async ({ page }) => {
-    for (const options of pictures) {
+    for (const picture of pictures) for (const checked of [false, true]) {
+      const options = { ...picture, checked };
       const result = await page.evaluate(options => window.rigAdaptersHarness.livePictureProbe(options), options);
       console.log(JSON.stringify({ ...options, ...result }));
       if (options.poser === 'auto') expect(result.poser).toBe('runtime');
@@ -103,7 +104,8 @@ test.describe('Issue #66 live-frame contract', () => {
       console.log(message);
       throw new Error(message);
     }
-    for (const options of pictures) {
+    for (const picture of pictures) for (const checked of [false, true]) {
+      const options = { ...picture, checked };
       const result = await page.evaluate(options => window.rigAdaptersHarness.livePictureProbe(options), { ...options, originCode });
       console.log(JSON.stringify({
         gate: 'PIXI_ORIGIN_BYTE_IDENTITY', browser: testInfo.project.name,
@@ -115,4 +117,50 @@ test.describe('Issue #66 live-frame contract', () => {
       expect(result.byteDifferences).toBe(0);
     }
   });
+});
+
+
+test.describe('Issue #56 production tuple boundary', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/packages/pixi/tests/harness.html');
+    await page.waitForFunction(() => Boolean(window.rigAdaptersHarness));
+  });
+  for (const field of ['tint', 'dark', 'corners', 'vertices'] as const) {
+    test(`${field}: checked named refusals and unchecked validation negative control`, async ({ page }) => {
+      for (const invalid of ['finite', 'length'] as const) {
+        const result = await page.evaluate(options => window.rigAdaptersHarness.tupleValidationProbe(options), { checked: true, field, invalid });
+        console.log(JSON.stringify(result));
+        expect(result.message).toContain(result.slot);
+        if (field === 'tint' && invalid === 'length') expect(result.message).toContain('tint slotIndex');
+        else { expect(result.message).toContain(result.page!); expect(result.message).toContain(field); }
+        // Plant the missing dynamic-check defect: the same input loses its named refusal.
+        if (!(field === 'tint' && invalid === 'length')) {
+          const mutant = await page.evaluate(options => window.rigAdaptersHarness.tupleValidationProbe(options), { checked: true, field, invalid, mutant: true });
+          expect(mutant.message).not.toContain(result.message);
+        }
+      }
+      const normal = await page.evaluate(options => window.rigAdaptersHarness.tupleValidationProbe(options), { checked: false, field });
+      const mutant = await page.evaluate(options => window.rigAdaptersHarness.tupleValidationProbe(options), { checked: false, field, mutant: true });
+      expect(normal.message).toBe('');
+      expect(normal.reads).toBe(0);
+      expect(mutant.reads).toBeGreaterThan(0);
+      console.log(JSON.stringify({ field, uncheckedReads: normal.reads, plantedValidationReads: mutant.reads }));
+    });
+  }
+});
+
+
+test('Issue #56 native live mesh copy follows generations and holds buffers', async ({ page }) => {
+  await page.goto('/packages/pixi/tests/harness.html');
+  await page.waitForFunction(() => Boolean(window.rigAdaptersHarness));
+  const result = await page.evaluate(() => window.rigAdaptersHarness.liveMeshCopyProbe());
+  console.log(JSON.stringify(result));
+  expect(result.changed).toBe(true);
+  expect(result.nativeSource).toBe(true);
+  expect(result.mismatches).toBe(0);
+  expect(result.stable).toBe(true);
+  expect(result.heldUploads).toBe(0);
+  expect(result.yScale).toBe(-1);
+  const planted = await page.evaluate(() => window.rigAdaptersHarness.liveMeshCopyProbe(true));
+  expect(planted.mismatches).toBeGreaterThan(0);
 });

@@ -1842,6 +1842,8 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
 }
 
 const harness = {
+  tupleValidationProbe,
+  liveMeshCopyProbe,
   oracleRetentionProbe,
   liveLeaseProbe,
   livePictureProbe,
@@ -1985,13 +1987,13 @@ async function liveLeaseProbe(options: { rigName: string; checked: boolean; muta
 }
 
 async function livePictureProbe(options: { rigName: string; animation?: string; time: number; pma?: boolean; poser?: 'auto' | 'oracle';
-  originCode?: string; mutant?: 'vertices' | 'clip' | 'dark' | 'pma' | 'order' }) {
+  originCode?: string; checked?: boolean; mutant?: 'vertices' | 'clip' | 'dark' | 'pma' | 'order' }) {
   const publicBench = options.rigName === 'spineboy' || options.rigName === 'raptor';
   const baseAssets = publicBench
     ? await loadModel({ modelUrl: `/bench/${options.rigName}/skeleton.model.json`, regions: 'none', setsUrl: null })
     : await getAssets(options.rigName);
   const assets = options.pma ? { ...baseAssets, pageImages: await getPmaTwinPages(options.rigName, baseAssets) } : baseAssets;
-  const player = new RigPlayer(document.createElement('div'), baseAssets, { mode: 'canvas', poser: options.poser ?? 'oracle', liveFrameChecks: true });
+  const player = new RigPlayer(document.createElement('div'), baseAssets, { mode: 'canvas', poser: options.poser ?? 'oracle', liveFrameChecks: options.checked ?? true });
   const animation = options.animation ?? defaultAnimationFor(baseAssets);
   player.play(animation, { loop: true }); player.seek(options.time);
   const original = player.posedFrame();
@@ -2028,6 +2030,7 @@ async function livePictureProbe(options: { rigName: string; animation?: string; 
   const root = new Container(); root.position.set(-bounds.left, bounds.topWorld); stage.addChild(root);
   const old = new OldRenderer(root, assets);
   const renderer = new PixiRenderer(root, assets);
+  renderer.liveFrameChecks = options.checked ?? true;
   try {
     old.render(snapshot); gl.render({ container: stage }); const expected = pixels();
     // Release old scene objects before the live renderer owns this root.
@@ -2045,4 +2048,75 @@ async function livePictureProbe(options: { rigName: string; animation?: string; 
     if (publicBench) baseAssets.dispose();
     if (revoke) URL.revokeObjectURL(revoke);
   }
+}
+
+/** Exercise the dynamic validation boundary through actual live-frame spans. */
+async function tupleValidationProbe(options: { checked: boolean; field: 'tint' | 'dark' | 'corners' | 'vertices'; invalid?: 'length' | 'finite'; mutant?: boolean }) {
+  const mesh = options.field === 'vertices';
+  const assets = await getAssets(mesh ? 'flex' : 'walk');
+  const player = new RigPlayer(document.createElement('div'), assets, { poser: 'oracle', liveFrameChecks: options.checked });
+  const root = new Container();
+  const renderer = new PixiRenderer(root, assets);
+  renderer.liveFrameChecks = options.mutant ? !options.checked : options.checked;
+  const finite = Number.isFinite;
+  let reads = 0;
+  const sentinel = 0.123456789123;
+  try {
+    player.play(defaultAnimationFor(assets), { loop: true });
+    player.seek(0.25);
+    const borrowed = player.liveFrame();
+    const index = borrowed.attachments.findIndex(a => a.kind === (mesh ? 'mesh' : 'region'));
+    if (index < 0) throw new Error('TUPLE_PROBE: fixture has no matching attachment');
+    const original = borrowed.attachments[index];
+    const vertices = Float64Array.from(borrowed.vertices);
+    const tint = Float64Array.from(borrowed.tint);
+    const dark = [0, 0, 0];
+    const badValue = options.invalid === 'finite' ? NaN : sentinel;
+    if (options.field === 'tint') tint[original.slotIndex * 4] = badValue;
+    else if (options.field === 'dark') dark[0] = badValue;
+    else vertices[original.offset] = badValue;
+    const attachment = { ...original, dark: options.field === 'dark' ? dark : original.dark,
+      count: options.invalid === 'length' && options.field !== 'dark' && options.field !== 'tint' ? (mesh ? 5 : 7) : original.count };
+    if (options.invalid === 'length' && options.field === 'dark') dark.pop();
+    const frame: LiveFrame = { ...borrowed, vertices,
+      tint: options.invalid === 'length' && options.field === 'tint' ? [] : tint,
+      attachments: borrowed.attachments.map((a, i) => i === index ? attachment : a),
+      count: 1, drawOrder: [index] };
+    Number.isFinite = (value: unknown): boolean => {
+      if (value === sentinel) reads++;
+      return finite(value);
+    };
+    let message = '';
+    try { renderer.render(frame); } catch (error) { message = String(error); }
+    return { field: options.field, invalid: options.invalid, checked: options.checked, reads, message, slot: original.slot, page: original.page };
+  } finally { Number.isFinite = finite; renderer.dispose(); root.destroy({ children: true }); player.dispose(); }
+}
+
+
+async function liveMeshCopyProbe(plant = false) {
+  const assets = await getAssets('flex');
+  const player = new RigPlayer(document.createElement('div'), assets, { poser: 'oracle', liveFrameChecks: false });
+  const root = new Container();
+  const renderer = new PixiRenderer(root, assets);
+  renderer.liveFrameChecks = false;
+  const fround = Math.fround;
+  try {
+    player.play(defaultAnimationFor(assets), { loop: true });
+    renderer.render(player.liveFrame());
+    const mesh = root.children.find((child): child is Mesh<MeshGeometry> => child instanceof Mesh)!;
+    const buffer = mesh.geometry.positions;
+    const initial = buffer.slice();
+    player.advance(0.25);
+    const lease = player.liveFrame();
+    Math.fround = () => { throw new Error('PER_VERTEX_FROUND'); };
+    try { renderer.render(lease); } finally { Math.fround = fround; }
+    if (plant) buffer.set(initial);
+    const slot = player.posedFrame().order.find(slot => slot.slot === mesh.label && slot.kind === 'mesh') as PosedMesh;
+    const mismatches = Array.from(buffer).filter((value, i) => value !== fround(slot.vertices[i])).length;
+    const beforeHold = renderer.positionUploadCount;
+    renderer.render(lease);
+    const heldUploads = renderer.positionUploadCount - beforeHold;
+    return { mismatches, heldUploads, stable: buffer === mesh.geometry.positions, yScale: mesh.scale.y,
+      nativeSource: ArrayBuffer.isView(lease.vertices), changed: initial.some((value, i) => value !== fround(slot.vertices[i])) };
+  } finally { Math.fround = fround; renderer.dispose(); root.destroy({ children: true }); player.dispose(); }
 }
