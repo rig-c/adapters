@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/rig-c/adapters/compare/phaser-v0.1.1...phaser-v0.1.2) (2026-10-27)
+
+
+### Performance Improvements
+
+* **phaser, three:** consume the player's live-frame lease instead of posedFrame() snapshots ([#81](https://github.com/rig-c/adapters/issues/81)) ([b532d2f](https://github.com/rig-c/adapters/commit/b532d2f40943a711b1f3ffb250b1826c425648d5))
+
 ## [0.1.1](https://github.com/rig-c/adapters/compare/phaser-v0.1.0...phaser-v0.1.1) (2026-10-15)
 
 
