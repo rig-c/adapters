@@ -1,5 +1,6 @@
 /* Browser side of the #62 capture; raw same-frame data is retained. */
 import '/main.js';
+import { verifyFixtureBytes } from '/fixtures.js';
 const params = new URLSearchParams(location.search);
 const phase = params.get('phase');
 const precheck = phase === 'precheck';
@@ -10,9 +11,13 @@ const stats = values => {
   const q = p => s[Math.floor((s.length-1)*p)];
   return { p05Ms:q(.05), p50Ms:q(.5), p95Ms:q(.95), samples:s.length };
 };
+let fixtures;
 try {
   const bench = window.__rigBench;
   report.manifest = await (await fetch('/manifest.json')).json();
+  report.fixtureMeasurements = {};
+  fixtures = await verifyFixtureBytes(report.manifest.assets, report.fixtureMeasurements);
+  bench.useVerifiedFixtures(fixtures);
   report.gpu = await bench.getGpuInfo();
   if (typeof report.gpu.renderer !== 'string' || /SwiftShader|llvmpipe|software/i.test(report.gpu.renderer)) throw Error(`HARDWARE_REQUIRED: ${report.gpu.renderer}`);
   report.browser = navigator.userAgent;
@@ -53,6 +58,7 @@ try {
   }
   report.status='passed';
 } catch(error) { report.status='failed'; report.error=String(error?.stack??error); }
+finally { fixtures?.dispose(); }
 report.finished=new Date().toISOString();
 document.body.textContent=JSON.stringify({phase,status:report.status,error:report.error});
 await fetch(`/result/${phase}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(report)});

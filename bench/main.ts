@@ -207,10 +207,25 @@ async function getGpuInfo(): Promise<GpuInfo> {
   };
 }
 
+interface VerifiedFixtures {
+  fetch: typeof globalThis.fetch;
+  imageUrl(url: string): string;
+}
+
+let verifiedFixtures: VerifiedFixtures | null = null;
+
+/** A capture installs its verified bytes before any model, image or control loads. */
+export function useVerifiedFixtures(fixtures: VerifiedFixtures): void {
+  if (verifiedFixtures || cachedOfficialAssets.size || cachedRigPlayAssets.size || cachedCompareRigPlayAssets.size) {
+    throw new Error('HARDWARE_FIXTURE_ORDER: install verified bytes once, before loading assets');
+  }
+  verifiedFixtures = fixtures;
+}
+
 async function requireFetchText(skeleton: string, url: string, cache: RequestCache = 'default'): Promise<string> {
   let response: Response;
   try {
-    response = await fetch(url, { cache });
+    response = await (verifiedFixtures?.fetch ?? fetch)(url, { cache });
   } catch (err) {
     throw new Error(
       `BENCH_ASSET_MISSING: ${skeleton} (${url}) network failure: ${err instanceof Error ? err.message : String(err)} — run "bash scripts/fetch-assets.sh"`,
@@ -233,7 +248,7 @@ async function requireFetchText(skeleton: string, url: string, cache: RequestCac
 async function requireImage(skeleton: string, url: string): Promise<HTMLImageElement> {
   const img = new Image();
   img.crossOrigin = 'anonymous';
-  img.src = url;
+  img.src = verifiedFixtures?.imageUrl(url) ?? url;
   try {
     await img.decode();
   } catch {
@@ -394,7 +409,17 @@ async function loadRigPlayModel(
   await requireFetchText(skeleton, modelUrl, cacheBust ? 'no-store' : 'default');
   const loader = arm === 'rig-c-pixi-compare' ? requireCompareBundle().loadModel : loadModel;
   try {
-    return await loader({ modelUrl, regions: 'none' });
+    return await loader({
+      modelUrl, regions: 'none',
+      ...(verifiedFixtures ? {
+        fetch: verifiedFixtures.fetch,
+        resolvePage: (pageName: string, sourceUrl: string) => verifiedFixtures!.imageUrl(
+          new URL(pageName, new URL(sourceUrl, document.baseURI)).href,
+        ),
+        // The frozen public fixtures contain no sets sidecar. Do not probe an unverified URL.
+        setsUrl: null,
+      } : {}),
+    });
   } catch (err) {
     throw new Error(
       `BENCH_ASSET_MISSING: ${skeleton} (${modelUrl}) failed to load model: ${err instanceof Error ? err.message : String(err)} — run "bash scripts/fetch-assets.sh"`,
@@ -1447,6 +1472,7 @@ export async function disposePreparedStage(): Promise<void> {
 }
 
 export interface RigBenchHarness {
+  useVerifiedFixtures: typeof useVerifiedFixtures;
   runSameFramePair: typeof runSameFramePair;
   getGpuInfo: typeof getGpuInfo;
   verifyAssets: typeof verifyAssets;
@@ -1469,6 +1495,7 @@ declare global {
 }
 
 window.__rigBench = {
+  useVerifiedFixtures,
   runSameFramePair,
   getGpuInfo,
   verifyAssets,
