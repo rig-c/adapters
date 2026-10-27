@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/rig-c/adapters/compare/pixi-v0.1.4...pixi-v0.1.5) (2026-10-27)
+
+
+### Performance Improvements
+
+* **phaser, three:** consume the player's live-frame lease instead of posedFrame() snapshots ([#81](https://github.com/rig-c/adapters/issues/81)) ([b532d2f](https://github.com/rig-c/adapters/commit/b532d2f40943a711b1f3ffb250b1826c425648d5))
+* **pixi:** copy mesh positions natively and keep per-tuple validation in checked mode ([#80](https://github.com/rig-c/adapters/issues/80)) ([b5e072f](https://github.com/rig-c/adapters/commit/b5e072f959d40e9b7bf9d91c27b68d6e660f9087))
+
 ## [0.1.4](https://github.com/rig-c/adapters/compare/pixi-v0.1.3...pixi-v0.1.4) (2026-10-27)
 
 
