@@ -81,6 +81,11 @@ test.describe('Issue #76 Three live-frame contract', () => {
   });
 
   test('pose-column before/after figure (spineboy and raptor, 100 instances, same run)', async ({ page }, testInfo) => {
+    const figures = process.env.ADAPTERS_FIGURES === '1';
+    const skipReason = 'ADAPTERS_FIGURES is not 1 — set ADAPTERS_FIGURES=1 to run optional pose-column measurements';
+    if (!figures) console.log('[three:pose-column:skip] SKIP: ' + skipReason);
+    test.skip(!figures, skipReason);
+
     for (const rigName of ['spineboy', 'raptor'] as const) {
       const result = await page.evaluate((options) => window.threeHarness.poseColumnProbe(options), { rigName, instances: 100 });
       console.log(JSON.stringify({ engine: 'three', browser: testInfo.project.name, ...result }));
