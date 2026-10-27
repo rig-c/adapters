@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { DrawClip } from '@rig-c/adapters-shared';
 import type { PosedClip } from '@rig-c/play';
 
 function cross(a: number[], b: number[], c: number[]): number { return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]); }
@@ -13,9 +14,12 @@ function hull(points: number[][]): number[][] {
 }
 
 /** Validate before scene mutation; inverse clips follow the reader's hull rule. */
-export function clipPoints(clip: PosedClip, detail: string): Phaser.Math.Vector2[] {
+export function clipPoints(clip: PosedClip | DrawClip, detail: string, indexed = false): Phaser.Math.Vector2[] {
   const fail = (why: string): never => { throw new Error(`${detail} has invalid clip: ${why} (expected a finite simple nondegenerate polygon and boolean inverse/convex)`); };
-  if (!clip || typeof clip.inverse !== 'boolean' || typeof clip.convex !== 'boolean' || !Array.isArray(clip.polygon) || clip.polygon.length < 6 || clip.polygon.length % 2 !== 0) fail('invalid shape or fewer than 3 vertices');
+  const validPolygon = indexed
+    ? Boolean(clip && clip.polygon && typeof clip.polygon === 'object' && Number.isInteger(clip.polygon.length))
+    : Boolean(clip && Array.isArray(clip.polygon));
+  if (!clip || typeof clip.inverse !== 'boolean' || typeof clip.convex !== 'boolean' || !validPolygon || clip.polygon.length < 6 || clip.polygon.length % 2 !== 0) fail('invalid shape or fewer than 3 vertices');
   const points: number[][] = [];
   for (let i = 0; i < clip.polygon.length; i += 2) {
     const p = [clip.polygon[i], clip.polygon[i + 1]];
@@ -42,7 +46,7 @@ export function clipPoints(clip: PosedClip, detail: string): Phaser.Math.Vector2
 }
 
 export interface ClipPair { open: Phaser.GameObjects.Stencil; close: Phaser.GameObjects.StencilReference }
-export function createClipPair(scene: Phaser.Scene, clip: PosedClip, points: Phaser.Math.Vector2[]): ClipPair {
+export function createClipPair(scene: Phaser.Scene, clip: PosedClip | DrawClip, points: Phaser.Math.Vector2[]): ClipPair {
   const graphics = new Phaser.GameObjects.Graphics(scene);
   graphics.fillStyle(0xffffff, 1).fillPoints(points, true, true);
   const options = { stencilInvert: !clip.inverse, stencilLayerMode: 'addLayer' as const, stencilCompositeCheck: false, stencilAlphaStrategy: 'keep' as const };

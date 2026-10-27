@@ -4,3 +4,19 @@ export function clamp01(value: number): number {
   return value;
 }
 
+export {
+  type DrawClip,
+  type DrawMesh,
+  type DrawNumbers,
+  type DrawRegion,
+  type DrawSlot,
+  isImmutableSpan,
+  LiveDrawViews,
+  NumberSpan,
+  numberCount,
+  numberOffset,
+  numberSource,
+  RetainedRuntimeFrame,
+} from './live.ts';
+
+

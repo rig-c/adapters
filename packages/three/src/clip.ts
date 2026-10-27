@@ -1,3 +1,4 @@
+import type { DrawClip } from '@rig-c/adapters-shared';
 import type { PosedClip } from '@rig-c/play';
 
 type Point = [number, number];
@@ -13,9 +14,12 @@ function hull(points: Point[]): Point[] {
 }
 
 /** The canvas reader keeps concavities, except convex=true and inverse use the hull. */
-export function clipPolygon(clip: PosedClip, detail: string, capacity: number): number[] {
+export function clipPolygon(clip: PosedClip | DrawClip, detail: string, capacity: number, indexed = false): number[] {
   const fail = (why: string): never => { throw new Error(`${detail} has invalid clip: ${why} (expected finite simple nonzero-area polygon, boolean inverse/convex, at most GPU MAX_TEXTURE_SIZE=${capacity} vertices)`); };
-  if (!clip || typeof clip.inverse !== 'boolean' || typeof clip.convex !== 'boolean' || !Array.isArray(clip.polygon) || clip.polygon.length < 6 || clip.polygon.length % 2 !== 0) fail('invalid flags or polygon length');
+  const validPolygon = indexed
+    ? Boolean(clip && clip.polygon && typeof clip.polygon === 'object' && Number.isInteger(clip.polygon.length))
+    : Boolean(clip && Array.isArray(clip.polygon));
+  if (!clip || typeof clip.inverse !== 'boolean' || typeof clip.convex !== 'boolean' || !validPolygon || clip.polygon.length < 6 || clip.polygon.length % 2 !== 0) fail('invalid flags or polygon length');
   if (clip.polygon.length / 2 > capacity) fail(`THREE_CLIP_CAPACITY: found ${clip.polygon.length / 2} vertices`);
   const points: Point[] = [];
   for (let i = 0; i < clip.polygon.length; i += 2) {

@@ -1,6 +1,6 @@
 # @rig-c/phaser
 
-Play a rig that `rigc build` wrote inside a Phaser 4.2+ WebGL scene through `@rig-c/play`'s core, with no Spine runtime.
+Play a rig that `rigc build` wrote inside a Phaser 4.2+ WebGL scene through `@rig-c/play`'s core, with no Spine runtime. Requires `@rig-c/play >=1.20.0 <2` for its public live-frame contract.
 
 ## Install
 
@@ -36,11 +36,11 @@ second.destroy();
 assets.dispose();
 ```
 
-`PhaserRig` is a native `Phaser.GameObjects.Container` that owns an independent `RigPlayer` and `PhaserRenderer`, advances from `Phaser.Scenes.Events.UPDATE` (`play`, `advance(dt)`, `seek(t)`, `timescale`), exposes `bone(name)`, `bounds()`, `drawnFrame()` and `posedFrame(slots?)`, and releases its native slot meshes, stencil clip helpers, GPU vertex/UV/index buffers, VAOs, shader program and reference-counted page textures on `destroy()` (or scene `SHUTDOWN` / `DESTROY`). Pass `{ autoUpdate: false }` to step manually.
+`PhaserRig` is a native `Phaser.GameObjects.Container` that owns an independent `RigPlayer` and `PhaserRenderer`, advances from `Phaser.Scenes.Events.UPDATE` (`play`, `advance(dt)`, `seek(t)`, `timescale`), consumes the player's `liveFrame()` lease synchronously (`liveFrameChecks`, `poser`), exposes `renderFrame(frame)`, `draw()`, `bone(name)`, `bounds()`, `drawnFrame()` and `posedFrame(slots?)`, and releases its native slot meshes, stencil clip helpers, GPU vertex/UV/index buffers, VAOs, shader program and reference-counted page textures on `destroy()` (or scene `SHUTDOWN` / `DESTROY`). Pass `{ autoUpdate: false }` to step manually.
 
 Several `PhaserRig` instances over one `ModelAssets` load share the underlying native Phaser page textures within the same `WebGLRenderer` context (`getPhaserLivePageTextureCount`, `getPhaserPageRefCount`, `getPhaserPageTexture`). Destroying one instance frees only its own meshes, buffers and listener; destroying the last holder removes the shared page textures from `scene.textures` and deletes their `WebGLTexture` handles.
 
-When you own the `RigPlayer` and container directly, use `PhaserRenderer(container, assets)` and call `renderer.render(player.posedFrame())` and `renderer.dispose()`.
+When you own the `RigPlayer` and container directly, use `PhaserRenderer(container, assets)` and call `renderer.render(player.liveFrame())` (or `renderer.render(player.posedFrame())`) and `renderer.dispose()`.
 
 ## Renderer contract
 

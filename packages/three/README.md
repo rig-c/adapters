@@ -40,15 +40,17 @@ requestAnimationFrame(frame);
 ```
 
 Use the model document and image pages from `rigc build`, unchanged. Tested with
-Three.js **0.186.1** and play **1.10.0**. The API is 0.x. See [`packages/three` in the repository](https://github.com/rig-c/adapters/tree/main/packages/three) for source and parity tests.
+Three.js **0.186.1** and play **1.20.0** (`@rig-c/play >=1.20.0 <2`). The API is 0.x. See [`packages/three` in the repository](https://github.com/rig-c/adapters/tree/main/packages/three) for source and parity tests.
 
 ## Live object
 
 `play(name, options)`, `seek(seconds)`, `advance(dt)` and `update(dt)` forward to
-an independent `RigPlayer`; deltas are seconds, and the player's `timescale`
+an independent `RigPlayer` and consume its `liveFrame()` lease synchronously
+(`liveFrameChecks`, `poser`, `renderFrame(frame)`); deltas are seconds, and the player's `timescale`
 (alias `timeScale`) applies exactly once. The app owns the loop. `timescale = 0`
-holds the drawn frame and uploads no geometry. `drawnFrame()` is the exact record
-passed to the native renderer; `posedFrame(filter)`, `bone(name)` and `bounds()`
+holds the drawn frame and uploads no geometry. `draw()` returns a detached
+`PosedFrame`; `drawnFrame()` returns a detached snapshot of the last draw,
+including after direct mutations of `rig.player`; `posedFrame(filter)`, `bone(name)` and `bounds()`
 use play's readers. World bounds are in rig-local Y-up space, before this Group's
 transform. `resourceCounts()` reports owned meshes, geometries, page materials,
 clip textures and retained/shared pages. `destroy()` is idempotent and frees
@@ -64,7 +66,7 @@ both straight and premultiplied pixels: conflicting `pma` records are refused.
 ## Native drawing and scene placement
 
 `ThreeRenderer(root, assets, webglRenderer)` is available when the app owns the
-player. Call `render(player.posedFrame())`, then render the scene normally.
+player. Call `render(player.liveFrame())` (or `render(player.posedFrame())`), then render the scene normally.
 No internal canvas, offscreen bitmap of the rig, or fallback renderer draws it.
 Positions and page UVs come directly from the record; the full atlas page is
 sampled, so packed rotation needs no separate rule. The root stays Y-up and may

@@ -9,7 +9,7 @@
     "./fixtures": "./src/fixtures.ts"
   },
   "peerDependencies": {
-    "@rig-c/play": "^1.10.0"
+    "@rig-c/play": "^1.20.0"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"
