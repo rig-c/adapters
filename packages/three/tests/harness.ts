@@ -323,16 +323,41 @@ export async function liveLeaseProbe(options: { rigName: string; checked: boolea
     rig.renderer.render(tracked);
     rig.renderer.alwaysReuploadGeometry = false;
     const repeatedStaticIndexReads = staticIndexReads;
-    const current = snapshot(), drawn = rig.drawnFrame();
+    const current = snapshot(), drawn = rig.drawnFrame(), rendererDrawn = rig.renderer.drawnFrame;
     const equalCurrent = JSON.stringify(drawn) === JSON.stringify(current);
+    const rendererEqualCurrent = JSON.stringify(rendererDrawn) === JSON.stringify(current);
     const saved = JSON.stringify(drawn);
     if (options.mutant === 'last-drawn') rig.drawnFrame = () => rig.player.posedFrame();
     rig.player.advance(0.137);
+    rig.player.liveFrame();
     const lastDrawSurvivesDirectMutation = JSON.stringify(rig.drawnFrame()) === saved;
+    const rendererSurvivesNextLease = JSON.stringify(rig.renderer.drawnFrame) === saved && JSON.stringify(rendererDrawn) === saved;
     rig.advance(1 / 60);
     const retainedSurvivesNextDraw = JSON.stringify(drawn) === saved;
     const explicit = rig.draw();
-    const explicitSnapshotIdentity = rig.drawnFrame() === explicit;
+    const explicitSnapshotIdentity = rig.drawnFrame() === explicit && rig.renderer.drawnFrame === explicit;
+    const standaloneRoot = new Group();
+    const standaloneRenderer = new ThreeRenderer(standaloneRoot, assets, renderer);
+    const standalonePlayer = new RigPlayer(document.createElement('div'), assets, { mode: 'canvas', liveFrameChecks: options.checked });
+    let standaloneEqualLast = false, standaloneSurvivesNextLease = false;
+    try {
+      standalonePlayer.play('walk', { loop: true });
+      for (let i = 0; i < 5; i++) {
+        standalonePlayer.advance(1 / 60);
+        standaloneRenderer.render(standalonePlayer.liveFrame());
+      }
+      const expectedStandalone = JSON.stringify(standalonePlayer.posedFrame());
+      const standaloneFirstRead = standaloneRenderer.drawnFrame;
+      standaloneEqualLast = JSON.stringify(standaloneFirstRead) === expectedStandalone;
+      standalonePlayer.advance(1 / 60);
+      standalonePlayer.liveFrame();
+      standaloneSurvivesNextLease =
+        JSON.stringify(standaloneRenderer.drawnFrame) === expectedStandalone &&
+        JSON.stringify(standaloneFirstRead) === expectedStandalone;
+    } finally {
+      standaloneRenderer.dispose();
+      standalonePlayer.dispose();
+    }
     const lease = rig.player.liveFrame();
     const vertices = lease.vertices, tint = lease.tint, metadata = lease.attachments[lease.drawOrder[0]], uvs = metadata.uvs;
     let readonlyRefused = false;
@@ -354,6 +379,33 @@ export async function liveLeaseProbe(options: { rigName: string; checked: boolea
     try { rig.renderer.render(options.mutant === 'fresh-lease' ? rig.player.liveFrame() : lease); }
     catch (error) { staleRefused = String(error).includes('LIVE_FRAME_STALE'); }
     const sceneUnchanged = before === sceneState();
+    const baseSnap = rig.player.posedFrame();
+    const baseMesh = baseSnap.order.find((s): s is Extract<PosedSlot, { kind: 'mesh' }> => s.kind === 'mesh')!;
+    const meshSlot = { ...baseMesh, uvs: [...baseMesh.uvs], triangles: [...baseMesh.triangles] };
+    const validSnap: PosedFrame = { order: baseSnap.order.map((s) => (s === baseMesh ? meshSlot : s)) };
+    rig.renderer.render(validSnap);
+    const beforeMutate = sceneState();
+    meshSlot.uvs.length = 2;
+    let inPlaceUvTruncateRefused = false;
+    try { rig.renderer.render(validSnap); }
+    catch (error) {
+      const msg = String(error);
+      inPlaceUvTruncateRefused = msg.includes(meshSlot.slot) && msg.includes('uvs') && msg.includes('length');
+    }
+    const inPlaceUvSceneUnchanged = beforeMutate === sceneState();
+    const triSlot = { ...baseMesh, uvs: [...baseMesh.uvs], triangles: [...baseMesh.triangles] };
+    const validTriSnap: PosedFrame = { order: baseSnap.order.map((s) => (s === baseMesh ? triSlot : s)) };
+    rig.renderer.render(validTriSnap);
+    const beforeTriMutate = sceneState();
+    triSlot.triangles.length = 1;
+    let inPlaceTriangleTruncateRefused = false;
+    try { rig.renderer.render(validTriSnap); }
+    catch (error) {
+      const msg = String(error);
+      inPlaceTriangleTruncateRefused = msg.includes(triSlot.slot) && msg.includes('triangles');
+    }
+    const inPlaceSceneUnchanged = inPlaceUvSceneUnchanged && beforeTriMutate === sceneState();
+    rig.draw();
     const stale = (read: () => unknown): boolean => {
       try { read(); return false; } catch (error) { return String(error).includes('LIVE_FRAME_STALE'); }
     };
@@ -367,6 +419,8 @@ export async function liveLeaseProbe(options: { rigName: string; checked: boolea
     }
     return {
       poser, meshCount: meshes.length, snapshotCalls, hotError, stableBuffers, equalCurrent,
+      rendererEqualCurrent, rendererSurvivesNextLease, standaloneEqualLast, standaloneSurvivesNextLease,
+      inPlaceUvTruncateRefused, inPlaceTriangleTruncateRefused, inPlaceSceneUnchanged,
       firstStaticIndexReads, repeatedStaticIndexReads,
       lastDrawSurvivesDirectMutation, retainedSurvivesNextDraw, explicitSnapshotIdentity,
       readonlyRefused, staleRefused, sceneUnchanged, nestedStale, colorInvalidates,

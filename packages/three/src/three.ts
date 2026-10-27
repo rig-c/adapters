@@ -1,6 +1,7 @@
 import {
   type DrawNumbers,
   type DrawSlot,
+  isImmutableSpan,
   LiveDrawViews,
   numberCount,
   numberOffset,
@@ -24,7 +25,7 @@ const livePages = new Set<Texture>();
 export const getLivePageTextureCount = () => livePages.size;
 export const getPageRefCount = (image: HTMLImageElement) => pages.get(image)?.holders.size ?? 0;
 export const getSharedPageTexture = (image: HTMLImageElement) => pages.get(image)?.texture;
-const REGION_INDICES = [0, 1, 2, 2, 3, 0];
+const REGION_INDICES = Object.freeze([0, 1, 2, 2, 3, 0]);
 const VERTEX = `
 out vec2 vUV;
 out vec2 vPosition;
@@ -102,8 +103,17 @@ export class ThreeRenderer {
   private readonly materials = new Map<HTMLImageElement, ShaderMaterial>();
   private readonly retained = new Set<HTMLImageElement>();
   private readonly liveViews = new LiveDrawViews('ThreeRenderer');
+  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame('ThreeRenderer');
+  private accepted: PosedFrame | null = null;
+  private hasRetained = false;
   constructor(readonly root: Group, readonly assets: ModelAssets, readonly host: WebGLRenderer) {
     if (!root?.isGroup || !assets || !(assets.pageImages instanceof Map) || !isWebGLHost(host)) throw new Error('ThreeRenderer: expected Group, ModelAssets.pageImages Map and WebGLRenderer');
+  }
+  get drawnFrame(): PosedFrame | null {
+    if (this.accepted) return this.accepted;
+    if (!this.hasRetained) return null;
+    this.accepted = this.retainedRuntimeFrame.snapshot();
+    return this.accepted;
   }
   get geometryUploadCount(): number { return this.positionUploadCount + this.uvUploadCount + this.triangleUploadCount; }
   get isDisposed(): boolean { return this.disposed; }
@@ -137,11 +147,11 @@ export class ThreeRenderer {
     const prior = this.pool.get(key);
     const priorPositions = prior?.mesh.geometry.getAttribute('position');
     const sameVertexCount = !this.alwaysReuploadGeometry && prior !== undefined && priorPositions !== undefined && priorPositions.array.length === (coordCount / 2) * 3;
-    if (!sameVertexCount || prior.uvs !== slot.uvs) {
+    if (!sameVertexCount || !isImmutableSpan(slot.uvs, indexed) || prior.uvs !== slot.uvs) {
       valid(slot.uvs, coordCount, 'uvs');
     }
     const indices = slot.kind === 'region' ? REGION_INDICES : slot.triangles;
-    if (!sameVertexCount || prior.indices !== indices) {
+    if (!sameVertexCount || !isImmutableSpan(indices, indexed) || prior.indices !== indices) {
       if ((!indexed && !Array.isArray(indices)) || indices.length < 3 || indices.length % 3 !== 0) fail(`triangles length=${indices?.length} (expected multiple of three >=3)`);
       for (let i = 0; i < indices.length; i++) {
         const v = indices[i];
@@ -195,10 +205,15 @@ export class ThreeRenderer {
     if ('order' in frame) {
       if (!Array.isArray(frame.order)) throw new Error('ThreeRenderer: frame.order absent (expected PosedSlot array)');
       this.renderOrder(frame.order, false);
+      this.accepted = frame;
+      this.hasRetained = false;
       return;
     }
     try {
       this.renderOrder(this.liveViews.read(frame), true);
+      this.retainedRuntimeFrame.capture(frame);
+      this.accepted = null;
+      this.hasRetained = true;
     } finally {
       this.liveViews.release();
     }
@@ -380,7 +395,6 @@ export interface ThreeRigOptions {
 export class ThreeRig extends Group {
   readonly player: RigPlayer;
   readonly renderer: ThreeRenderer;
-  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame('ThreeRig');
   private lastFrame: PosedFrame | null = null;
   private destroyed = false;
   constructor(readonly assets: ModelAssets, options: ThreeRigOptions) {
@@ -425,13 +439,12 @@ export class ThreeRig extends Group {
       return;
     }
     this.renderer.render(frame);
-    this.retainedRuntimeFrame.capture(frame, () => this.player.posedFrame());
     this.lastFrame = null;
   }
   private drawCurrent(): void {
     this.renderFrame(this.player.poser === 'runtime' ? this.player.liveFrame() : this.player.posedFrame());
   }
-  drawnFrame(): PosedFrame { this.active(); return this.lastFrame ??= this.retainedRuntimeFrame.snapshot(); }
+  drawnFrame(): PosedFrame { this.active(); return this.lastFrame ??= this.renderer.drawnFrame!; }
   posedFrame(slots?: SlotFilter | null): PosedFrame { this.active(); return this.player.posedFrame(slots); }
   bone(name: string): BoneWorld { this.active(); return this.player.bone(name); }
   bounds(): PoseBounds | null { this.active(); return this.player.bounds(); }

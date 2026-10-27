@@ -16,7 +16,7 @@ test.describe('Issue #76 Three live-frame contract', () => {
       expect(result.meshCount).toBeGreaterThan(0);
       expect(result.firstStaticIndexReads).toBeGreaterThan(0);
       expect(result.repeatedStaticIndexReads).toBe(0);
-      for (const field of ['stableBuffers', 'equalCurrent', 'lastDrawSurvivesDirectMutation', 'retainedSurvivesNextDraw', 'explicitSnapshotIdentity'] as const) expect(result[field]).toBe(true);
+      for (const field of ['stableBuffers', 'equalCurrent', 'rendererEqualCurrent', 'rendererSurvivesNextLease', 'standaloneEqualLast', 'standaloneSurvivesNextLease', 'inPlaceUvTruncateRefused', 'inPlaceTriangleTruncateRefused', 'inPlaceSceneUnchanged', 'lastDrawSurvivesDirectMutation', 'retainedSurvivesNextDraw', 'explicitSnapshotIdentity'] as const) expect(result[field]).toBe(true);
       if (checked) for (const field of ['readonlyRefused', 'staleRefused', 'sceneUnchanged', 'nestedStale', 'colorInvalidates'] as const) expect(result[field]).toBe(true);
     });
   }

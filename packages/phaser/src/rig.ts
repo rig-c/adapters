@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { RetainedRuntimeFrame } from '@rig-c/adapters-shared';
 import { RigPlayer, type ModelAssets, type PlayOptions, type RigPlayerOptions, type LiveFrame, type PosedFrame, type BoneWorld, type PoseBounds, type SlotFilter } from '@rig-c/play';
 import { PhaserRenderer } from './phaser.ts';
 
@@ -19,7 +18,6 @@ export class PhaserRig extends Phaser.GameObjects.Container {
   readonly player: RigPlayer;
   readonly renderer: PhaserRenderer;
   private readonly updates: Phaser.Events.EventEmitter;
-  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame('PhaserRig');
   private lastDrawnFrame: PosedFrame | null = null;
   private rigDestroyed = false;
   private readonly onSceneShutdown = (): void => { this.destroy(true); };
@@ -106,7 +104,6 @@ export class PhaserRig extends Phaser.GameObjects.Container {
       return;
     }
     this.renderer.render(frame);
-    this.retainedRuntimeFrame.capture(frame, () => this.player.posedFrame());
     this.lastDrawnFrame = null;
   }
 
@@ -116,7 +113,7 @@ export class PhaserRig extends Phaser.GameObjects.Container {
 
   drawnFrame(): PosedFrame {
     this.ensureActive('drawnFrame');
-    return this.lastDrawnFrame ??= this.retainedRuntimeFrame.snapshot();
+    return this.lastDrawnFrame ??= this.renderer.drawnFrame!;
   }
 
   posedFrame(slots?: SlotFilter | null): PosedFrame {

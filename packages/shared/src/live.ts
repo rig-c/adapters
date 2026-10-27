@@ -9,8 +9,27 @@ export type DrawMesh = Omit<PosedMesh, 'z' | 'vertices' | 'uvs' | 'triangles' | 
 export type DrawSlot = DrawRegion | DrawMesh;
 const EMPTY: LiveNumbers = Object.freeze([]);
 const immutableLengths = new WeakSet<object>();
+const immutableSpans = new WeakSet<object>();
 const immutableMetadata = new WeakSet<LiveAttachment>();
 const IDENTITY_FIELDS = ['slot', 'slotIndex', 'attachment', 'skin', 'placeholder', 'kind', 'region', 'page', 'pma', 'blend', 'offset', 'count'];
+
+/** True only for frozen numeric arrays or checked live-lease readonly spans; mutable snapshot arrays return false. */
+export function isImmutableSpan(value: LiveNumbers, indexed: boolean): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (immutableSpans.has(value)) return true;
+  if (Object.isFrozen(value) && Array.isArray(value)) {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (let i = 0; i < value.length; i++) {
+      const d = descriptors[i];
+      if (!d || !('value' in d) || typeof d.value !== 'number') return false;
+    }
+    immutableSpans.add(value);
+    return true;
+  }
+  if (!indexed || value.length === 0) return false;
+  const d0 = Object.getOwnPropertyDescriptor(value, 0);
+  return Boolean(d0 && (!d0.writable || 'get' in d0));
+}
 
 /** Frozen own primitive fields cannot change through a prototype or getter. */
 function frozenData(value: LiveAttachment): boolean {
@@ -128,6 +147,35 @@ function identity(a: LiveAttachment): string {
   return JSON.stringify([a.slotIndex, a.slot, a.skin, a.placeholder, a.attachment, a.kind, a.page, a.region]);
 }
 
+function templateFromAttachment(a: LiveAttachment): PosedSlot {
+  const common = {
+    slot: a.slot,
+    z: a.slotIndex,
+    blend: a.blend,
+    tint: [1, 1, 1, 1] as [number, number, number, number],
+  };
+  return a.kind === 'region'
+    ? {
+        ...common,
+        kind: 'region',
+        region: a.region ?? '',
+        corners: [],
+        page: a.page ?? '',
+        pma: a.pma,
+        uvs: Array.from(a.uvs),
+      }
+    : {
+        ...common,
+        kind: 'mesh',
+        page: a.page ?? '',
+        pma: a.pma,
+        vertices: [],
+        uvs: Array.from(a.uvs),
+        triangles: Array.from(a.triangles),
+        sequence: 0,
+      };
+}
+
 interface SavedRow {
   template: PosedSlot; offset: number; count: number; tintOffset: number;
   dark?: number[]; clip?: PosedClip;
@@ -162,7 +210,7 @@ export class RetainedRuntimeFrame {
 
   constructor(private readonly owner = 'PixiRig') {}
 
-  capture(frame: LiveFrame, seed: () => PosedFrame): void {
+  capture(frame: LiveFrame, seed?: () => PosedFrame): void {
     let snapshot: PosedFrame | null = null;
     const { count, attachments, drawOrder, vertices, tint } = frame;
     // One owned copy per buffer avoids transient views for every drawn row.
@@ -180,10 +228,14 @@ export class RetainedRuntimeFrame {
         const key = identity(a);
         template = this.checkedTemplates.get(key);
         if (!template) {
-          snapshot ??= seed();
-          template = snapshot.order[i];
-          if (!template || template.slot !== a.slot || template.kind !== a.kind || template.page !== a.page) {
-            throw new Error(`${this.owner}: live slot "${a.slot}" needs a matching snapshot metadata seed at draw index ${i}`);
+          if (seed) {
+            snapshot ??= seed();
+            template = snapshot.order[i];
+            if (!template || template.slot !== a.slot || template.kind !== a.kind || template.page !== a.page) {
+              throw new Error(`${this.owner}: live slot "${a.slot}" needs a matching snapshot metadata seed at draw index ${i}`);
+            }
+          } else {
+            template = templateFromAttachment(a);
           }
           // z and sequence come only from a real snapshot, never guessed from a lease.
           if (this.checkedTemplates.size >= Math.max(64, frame.attachments.length * 2)) this.checkedTemplates.clear();

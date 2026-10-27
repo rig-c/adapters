@@ -4,10 +4,12 @@ import {
   type DrawClip,
   type DrawNumbers,
   type DrawSlot,
+  isImmutableSpan,
   LiveDrawViews,
   numberCount,
   numberOffset,
   numberSource,
+  RetainedRuntimeFrame,
 } from '@rig-c/adapters-shared';
 import type { BlendMode, LiveFrame, ModelAssets, PosedClip, PosedFrame, PosedSlot } from '@rig-c/play';
 import { FrameSubmitter, type SlotView } from './mesh.ts';
@@ -83,10 +85,17 @@ export class PhaserRenderer {
   private readonly blendModes: Record<BlendMode, number>;
   private readonly native: Phaser.Renderer.WebGL.WebGLRenderer;
   private readonly liveViews = new LiveDrawViews('PhaserRenderer');
+  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame('PhaserRenderer');
   private clips: Array<ClipPair & { key: string }> = [];
   private disposed = false;
   private accepted: PosedFrame | null = null;
-  get drawnFrame(): PosedFrame | null { return this.accepted; }
+  private hasRetained = false;
+  get drawnFrame(): PosedFrame | null {
+    if (this.accepted) return this.accepted;
+    if (!this.hasRetained) return null;
+    this.accepted = this.retainedRuntimeFrame.snapshot();
+    return this.accepted;
+  }
   get alwaysReuploadGeometry(): boolean { return this.submitter.alwaysReuploadGeometry; }
   set alwaysReuploadGeometry(value: boolean) { this.submitter.alwaysReuploadGeometry = value; }
 
@@ -115,10 +124,14 @@ export class PhaserRenderer {
       if (!Array.isArray(frame.order)) throw new Error('PhaserRenderer: invalid frame.order (expected PosedFrame array)');
       this.renderOrder(frame.order, false);
       this.accepted = frame;
+      this.hasRetained = false;
       return;
     }
     try {
       this.renderOrder(this.liveViews.read(frame), true);
+      this.retainedRuntimeFrame.capture(frame);
+      this.accepted = null;
+      this.hasRetained = true;
     } finally {
       this.liveViews.release();
     }
@@ -142,13 +155,13 @@ export class PhaserRenderer {
       const priorView = this.views.get(slot.slot);
       const priorBuffers = priorView?.slotBuffers;
       const sameVertexCount = !this.alwaysReuploadGeometry && priorView !== undefined && priorView.vertices.length === coordCount * 2;
-      if (!sameVertexCount || priorBuffers?.uvs !== slot.uvs) {
+      if (!sameVertexCount || !isImmutableSpan(slot.uvs, indexed) || priorBuffers?.uvs !== slot.uvs) {
         assertFiniteValues(slot.uvs, coordCount, 'uvs', detail, indexed);
       }
       assertFiniteValues(slot.tint, 4, 'tint', detail, indexed);
       if (slot.dark !== undefined) assertFiniteValues(slot.dark, 3, 'dark', detail, indexed);
       if (slot.kind === 'mesh') {
-        if (!sameVertexCount || priorBuffers?.triangles !== slot.triangles) {
+        if (!sameVertexCount || !isImmutableSpan(slot.triangles, indexed) || priorBuffers?.triangles !== slot.triangles) {
           if ((!indexed && !Array.isArray(slot.triangles)) || slot.triangles.length < 3 || slot.triangles.length % 3 !== 0) throw new Error(`${detail} has invalid triangles (expected index triples)`);
           for (let i = 0; i < slot.triangles.length; i++) {
             const index = slot.triangles[i];

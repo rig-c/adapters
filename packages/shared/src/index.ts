@@ -10,6 +10,7 @@ export {
   type DrawNumbers,
   type DrawRegion,
   type DrawSlot,
+  isImmutableSpan,
   LiveDrawViews,
   NumberSpan,
   numberCount,
