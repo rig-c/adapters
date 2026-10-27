@@ -1844,6 +1844,7 @@ async function pixiRigRefusalAndFreezeProbe(): Promise<PixiRigRefusalAndFreezeRe
 const harness = {
   tupleValidationProbe,
   liveMeshCopyProbe,
+  slotCounterProbe,
   oracleRetentionProbe,
   liveLeaseProbe,
   livePictureProbe,
@@ -2093,13 +2094,15 @@ async function tupleValidationProbe(options: { checked: boolean; field: 'tint' |
 }
 
 
-async function liveMeshCopyProbe(plant = false) {
+async function liveMeshCopyProbe(plant = false, plantView = false) {
   const assets = await getAssets('flex');
   const player = new RigPlayer(document.createElement('div'), assets, { poser: 'oracle', liveFrameChecks: false });
   const root = new Container();
   const renderer = new PixiRenderer(root, assets);
   renderer.liveFrameChecks = false;
   const fround = Math.fround;
+  const subarray = Float64Array.prototype.subarray;
+  let transientViews = 0;
   try {
     player.play(defaultAnimationFor(assets), { loop: true });
     renderer.render(player.liveFrame());
@@ -2109,14 +2112,65 @@ async function liveMeshCopyProbe(plant = false) {
     player.advance(0.25);
     const lease = player.liveFrame();
     Math.fround = () => { throw new Error('PER_VERTEX_FROUND'); };
-    try { renderer.render(lease); } finally { Math.fround = fround; }
+    Float64Array.prototype.subarray = function(this: Float64Array, begin?: number, end?: number) {
+      if (this === lease.vertices) transientViews++;
+      return subarray.call(this, begin, end);
+    };
+    try {
+      if (plantView) {
+        const view = (lease.vertices as Float64Array).subarray(0, 1);
+        if (view[0] !== lease.vertices[0]) throw Error('VIEW_CONTROL');
+      }
+      renderer.render(lease);
+    } finally { Math.fround = fround; Float64Array.prototype.subarray = subarray; }
     if (plant) buffer.set(initial);
     const slot = player.posedFrame().order.find(slot => slot.slot === mesh.label && slot.kind === 'mesh') as PosedMesh;
     const mismatches = Array.from(buffer).filter((value, i) => value !== fround(slot.vertices[i])).length;
     const beforeHold = renderer.positionUploadCount;
     renderer.render(lease);
     const heldUploads = renderer.positionUploadCount - beforeHold;
-    return { mismatches, heldUploads, stable: buffer === mesh.geometry.positions, yScale: mesh.scale.y,
+    return { mismatches, heldUploads, transientViews, stable: buffer === mesh.geometry.positions, yScale: mesh.scale.y,
       nativeSource: ArrayBuffer.isView(lease.vertices), changed: initial.some((value, i) => value !== fround(slot.vertices[i])) };
-  } finally { Math.fround = fround; renderer.dispose(); root.destroy({ children: true }); player.dispose(); }
+  } finally { Math.fround = fround; Float64Array.prototype.subarray = subarray; renderer.dispose(); root.destroy({ children: true }); player.dispose(); }
+}
+
+
+async function slotCounterProbe(plant: 'none' | 'rebuild' | 'carry' = 'none') {
+  const assets = await getAssets('walk');
+  const player = new RigPlayer(document.createElement('div'), assets, { poser: 'oracle' });
+  const root = new Container();
+  const renderer = new PixiRenderer(root, assets);
+  type Counter = { generation: number; count: number };
+  const internal = renderer as unknown as { slotCounts: Map<string, Counter>; drawGeneration: number };
+  let sets = 0;
+  try {
+    player.play(defaultAnimationFor(assets), { loop: true });
+    const base = player.posedFrame().order.find((slot): slot is PosedRegion => slot.kind === 'region')!;
+    const a: PosedRegion = { ...base, slot: 'repeat' };
+    const b: PosedRegion = { ...a, corners: a.corners.map((v, i) => i % 2 === 0 ? v + 20 : v) };
+    renderer.render({ order: [a, b] });
+    const children = root.children.slice();
+    const record = internal.slotCounts.get('repeat');
+    const set = internal.slotCounts.set;
+    internal.slotCounts.set = function(this: Map<string, Counter>, key: string, value: Counter) {
+      sets++; return set.call(this, key, value);
+    };
+    const submit = (order: PosedRegion[]): void => {
+      if (plant === 'rebuild') internal.slotCounts.clear();
+      if (plant === 'carry') for (const counter of internal.slotCounts.values()) {
+        counter.generation = (internal.drawGeneration + 1) >>> 0; counter.count = 100;
+      }
+      renderer.render({ order });
+    };
+    submit([b, a]); submit([a]); submit([a, b]); submit([]); submit([b, a]);
+    const steadySets = sets;
+    const recordsReused = internal.slotCounts.get('repeat') === record;
+    const poolStable = renderer.spriteCount === 2 && root.children[0] === children[0] && root.children[1] === children[1];
+    const positionsMatch = root.children[0].position.x === b.corners[2] && root.children[1].position.x === a.corners[2];
+    internal.drawGeneration = 0xffffffff;
+    renderer.render({ order: [a, b] });
+    const rolloverCorrect = Number(internal.drawGeneration) === 0 && root.children.length === 2 && renderer.spriteCount === 2 &&
+      root.children[0].position.x === a.corners[2] && root.children[1].position.x === b.corners[2];
+    return { steadySets, recordsReused, poolStable, positionsMatch, rolloverCorrect };
+  } finally { renderer.dispose(); root.destroy({ children: true }); player.dispose(); }
 }

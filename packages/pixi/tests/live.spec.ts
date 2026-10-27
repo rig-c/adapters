@@ -160,7 +160,26 @@ test('Issue #56 native live mesh copy follows generations and holds buffers', as
   expect(result.mismatches).toBe(0);
   expect(result.stable).toBe(true);
   expect(result.heldUploads).toBe(0);
+  expect(result.transientViews).toBe(0);
   expect(result.yScale).toBe(-1);
   const planted = await page.evaluate(() => window.rigAdaptersHarness.liveMeshCopyProbe(true));
   expect(planted.mismatches).toBeGreaterThan(0);
+  const plantedView = await page.evaluate(() => window.rigAdaptersHarness.liveMeshCopyProbe(false, true));
+  expect(plantedView.transientViews).toBeGreaterThan(0);
+  expect(plantedView.mismatches).toBe(0);
+});
+
+
+test('Issue #88 slot counters reuse storage and reset occurrences across draws and rollover', async ({ page }) => {
+  await page.goto('/packages/pixi/tests/harness.html');
+  await page.waitForFunction(() => Boolean(window.rigAdaptersHarness));
+  const normal = await page.evaluate(() => window.rigAdaptersHarness.slotCounterProbe());
+  console.log(JSON.stringify({ slotCounters: normal }));
+  expect(normal.steadySets).toBe(0);
+  for (const field of ['recordsReused', 'poolStable', 'positionsMatch', 'rolloverCorrect'] as const) expect(normal[field]).toBe(true);
+  const rebuild = await page.evaluate(() => window.rigAdaptersHarness.slotCounterProbe('rebuild'));
+  expect(rebuild.steadySets).toBeGreaterThan(0);
+  expect(rebuild.recordsReused).toBe(false);
+  const carry = await page.evaluate(() => window.rigAdaptersHarness.slotCounterProbe('carry'));
+  expect(carry.poolStable).toBe(false);
 });

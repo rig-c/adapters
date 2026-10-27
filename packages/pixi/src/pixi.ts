@@ -489,7 +489,8 @@ export class PixiRenderer {
   private readonly validatedClips = new Map<DrawClip, ValidatedClip>();
   private readonly liveViews = new LiveDrawViews();
   private readonly validatedPages = new Map<string, ValidatedPageInfo>();
-  private readonly slotCounts = new Map<string, number>();
+  private readonly slotCounts = new Map<string, { generation: number; count: number }>();
+  private drawGeneration = 0;
   private readonly preparedPool: PreparedSlotItem[] = [];
   private autoPromotedRenderGroup = false;
   private disposed = false;
@@ -604,7 +605,9 @@ export class PixiRenderer {
 
     this.validatedClips.clear();
     this.validatedPages.clear();
-    this.slotCounts.clear();
+    // Reuse counters without rebuilding the Map's backing table every draw.
+    const generation = this.drawGeneration = (this.drawGeneration + 1) >>> 0;
+    if (generation === 0) this.slotCounts.clear();
     const slotCount = order.length;
     const prepared = this.preparedPool;
     const slotCounts = this.slotCounts;
@@ -615,8 +618,14 @@ export class PixiRenderer {
         slot && typeof slot === 'object' && typeof slot.slot === 'string' && slot.slot.length > 0
           ? slot.slot
           : '<unnamed>';
-      const occurrence = slotCounts.get(slotName) ?? 0;
-      slotCounts.set(slotName, occurrence + 1);
+      let counter = slotCounts.get(slotName);
+      if (!counter) {
+        counter = { generation, count: 0 };
+        slotCounts.set(slotName, counter);
+      } else if (counter.generation !== generation) {
+        counter.generation = generation; counter.count = 0;
+      }
+      const occurrence = counter.count++;
       const poolKey = occurrence === 0 ? slotName : `${slotName}\u0000${occurrence}`;
       let item = prepared[i];
       if (!item) {
@@ -941,13 +950,9 @@ export class PixiRenderer {
       } else if (this.liveInput) {
         if (this.alwaysReuploadGeometry || !this.livePositionsUnchanged) {
           const positions = entry.positions;
-          // Real production typed arrays take the native conversion/copy path.
-          // Checked leases expose indexed proxies, so keep their reads checked.
-          if (points instanceof Float64Array && ArrayBuffer.isView(points)) {
-            positions.set(points.subarray(offset, offset + count));
-          } else {
-            for (let i = 0; i < count; i++) positions[i] = points[offset + i];
-          }
+          // Typed assignment converts Float64 to Float32 without a transient
+          // subarray view; checked leases keep the same indexed read boundary.
+          for (let i = 0; i < count; i++) positions[i] = points[offset + i];
           entry.geometry.getBuffer('aPosition').update();
           this.positionUploadCount++;
         }
