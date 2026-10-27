@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { RigPlayer, type ModelAssets, type PlayOptions, type RigPlayerOptions, type PosedFrame, type BoneWorld, type PoseBounds, type SlotFilter } from '@rig-c/play';
+import { RetainedRuntimeFrame } from '@rig-c/adapters-shared';
+import { RigPlayer, type ModelAssets, type PlayOptions, type RigPlayerOptions, type LiveFrame, type PosedFrame, type BoneWorld, type PoseBounds, type SlotFilter } from '@rig-c/play';
 import { PhaserRenderer } from './phaser.ts';
 
-export interface PhaserRigOptions extends Pick<RigPlayerOptions, 'skin' | 'slots' | 'seekStep'> {
+export interface PhaserRigOptions extends Pick<RigPlayerOptions, 'skin' | 'slots' | 'seekStep' | 'liveFrameChecks' | 'poser'> {
   timescale?: number;
   timeScale?: number;
   /** Scene UPDATE drives seconds into the player; false leaves stepping to the caller. */
@@ -18,6 +19,8 @@ export class PhaserRig extends Phaser.GameObjects.Container {
   readonly player: RigPlayer;
   readonly renderer: PhaserRenderer;
   private readonly updates: Phaser.Events.EventEmitter;
+  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame('PhaserRig');
+  private lastDrawnFrame: PosedFrame | null = null;
   private rigDestroyed = false;
   private readonly onSceneShutdown = (): void => { this.destroy(true); };
   private readonly tick = (_time: number, deltaMS: number): void => { this.advance(deltaMS / 1000); };
@@ -29,13 +32,22 @@ export class PhaserRig extends Phaser.GameObjects.Container {
     const scale = options.timescale ?? options.timeScale ?? 1;
     numberAtLeastZero(scale, 'timescale');
     this.updates = scene.sys.events;
-    this.player = new RigPlayer(document.createElement('div'), assets, { mode: 'canvas', skin: options.skin, slots: options.slots, seekStep: options.seekStep });
+    this.player = new RigPlayer(document.createElement('div'), assets, {
+      mode: 'canvas',
+      skin: options.skin,
+      slots: options.slots,
+      seekStep: options.seekStep,
+      liveFrameChecks: options.liveFrameChecks,
+      poser: options.poser,
+    });
     let renderer: PhaserRenderer | undefined;
     try {
       this.player.timeScale = scale;
       renderer = new PhaserRenderer(this, assets);
       this.renderer = renderer;
-      this.renderer.render(this.player.posedFrame());
+      const initialFrame = this.player.posedFrame();
+      this.lastDrawnFrame = initialFrame;
+      this.renderer.render(initialFrame);
     } catch (error) {
       renderer?.dispose();
       this.player.dispose();
@@ -54,33 +66,57 @@ export class PhaserRig extends Phaser.GameObjects.Container {
     this.ensureActive('play');
     if (typeof name !== 'string' || !name) throw new Error(`PhaserRig: invalid animation name ${String(name)} (expected nonempty string)`);
     this.player.play(name, options);
-    this.draw();
+    this.drawCurrent();
   }
 
   advance(dt: number): void {
     this.ensureActive('advance');
     numberAtLeastZero(dt, 'dt');
     this.player.advance(dt);
-    this.draw();
+    this.drawCurrent();
   }
 
   seek(time: number): void {
     this.ensureActive('seek');
     numberAtLeastZero(time, 'time');
     this.player.seek(time);
-    this.draw();
+    this.drawCurrent();
   }
 
   draw(): PosedFrame {
     this.ensureActive('draw');
     const frame = this.player.posedFrame();
+    this.lastDrawnFrame = frame;
     this.renderer.render(frame);
     return frame;
   }
 
+  renderFrame(frame: PosedFrame | LiveFrame): void {
+    this.ensureActive('renderFrame');
+    if ('order' in frame) {
+      this.renderer.render(frame);
+      this.lastDrawnFrame = frame;
+      return;
+    }
+    if (frame.generation !== this.player.generation) {
+      throw new Error(`PhaserRig: live frame generation ${frame.generation} needs current player generation ${this.player.generation}`);
+    }
+    if (this.player.poser !== 'runtime') {
+      this.renderFrame(this.player.posedFrame());
+      return;
+    }
+    this.renderer.render(frame);
+    this.retainedRuntimeFrame.capture(frame, () => this.player.posedFrame());
+    this.lastDrawnFrame = null;
+  }
+
+  private drawCurrent(): void {
+    this.renderFrame(this.player.poser === 'runtime' ? this.player.liveFrame() : this.player.posedFrame());
+  }
+
   drawnFrame(): PosedFrame {
     this.ensureActive('drawnFrame');
-    return this.renderer.drawnFrame!;
+    return this.lastDrawnFrame ??= this.retainedRuntimeFrame.snapshot();
   }
 
   posedFrame(slots?: SlotFilter | null): PosedFrame {
@@ -107,9 +143,9 @@ export class PhaserRig extends Phaser.GameObjects.Container {
   get timeScale(): number { return this.timescale; }
   set timeScale(value: number) { this.timescale = value; }
   get skin(): string | undefined { this.ensureActive('skin'); return this.player.skin; }
-  set skin(value: string | undefined) { this.ensureActive('skin'); this.player.skin = value; this.draw(); }
+  set skin(value: string | undefined) { this.ensureActive('skin'); this.player.skin = value; this.drawCurrent(); }
   get slots(): SlotFilter | null { this.ensureActive('slots'); return this.player.slots; }
-  set slots(value: SlotFilter | null) { this.ensureActive('slots'); this.player.slots = value; this.draw(); }
+  set slots(value: SlotFilter | null) { this.ensureActive('slots'); this.player.slots = value; this.drawCurrent(); }
 
   override destroy(fromScene?: boolean): void {
     if (this.rigDestroyed || this.ignoreDestroy) return;

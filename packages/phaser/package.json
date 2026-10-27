@@ -28,7 +28,7 @@
   "sideEffects": false,
   "peerDependencies": {
     "phaser": "^4.2.0",
-    "@rig-c/play": "^1.10.0"
+    "@rig-c/play": "^1.20.0"
   },
   "devDependencies": {
     "@rig-c/adapters-shared": "workspace:*"

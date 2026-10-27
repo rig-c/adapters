@@ -1,4 +1,5 @@
-import { CanvasRenderer, RigPlayer, loadModel, type ModelAssets, type PosedFrame, type PosedSlot } from '@rig-c/play';
+import { CanvasRenderer, RigPlayer, loadModel, type LiveFrame, type LiveNumbers, type ModelAssets, type PosedFrame, type PosedSlot } from '@rig-c/play';
+import { RetainedRuntimeFrame } from '@rig-c/adapters-shared';
 import { fixtureModelUrl } from '@rig-c/adapters-shared/fixtures';
 import { BufferAttribute, Group, Mesh, MeshBasicMaterial, OrthographicCamera, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer } from 'three';
 import { ThreeRenderer, ThreeRig, getLivePageTextureCount, getPageRefCount, readMeshScreenVertices, type ThreeSlotMesh } from '../src/index.ts';
@@ -109,10 +110,29 @@ export async function lifecycle(leak = false, dropIngress = false) {
     renderer.render(scene, camera);
     const initial = rigs.map((r) => r.resourceCounts()), distinct = new Set(rigs.map((r) => JSON.stringify(r.drawnFrame()))).size;
     const first = rigs[0]; bare = new RigPlayer(document.createElement('div'), assets); bare.play('mask');
+    const verifier = new RetainedRuntimeFrame('ThreeRig');
     const captured: string[] = [], nativeRender = ThreeRenderer.prototype.render;
-    ThreeRenderer.prototype.render = function(frame) { if (this === first.renderer) captured.push(JSON.stringify(frame)); return nativeRender.call(this, frame); };
+    ThreeRenderer.prototype.render = function(frame) {
+      if (this === first.renderer) {
+        if ('order' in frame) {
+          captured.push(JSON.stringify(frame));
+        } else {
+          verifier.capture(frame, () => ({ order: first.player.posedFrame().order.slice(dropIngress ? 1 : 0) }));
+          captured.push(JSON.stringify(verifier.snapshot()));
+        }
+      }
+      return nativeRender.call(this, frame);
+    };
     restoreIngress = () => { ThreeRenderer.prototype.render = nativeRender; };
-    if (dropIngress) first.renderer.render = (frame) => ThreeRenderer.prototype.render.call(first.renderer, { order: frame.order.slice(1) });
+    if (dropIngress) {
+      first.renderer.render = (frame) => {
+        if ('order' in frame) return ThreeRenderer.prototype.render.call(first.renderer, { order: frame.order.slice(1) });
+        const count = Math.max(0, frame.count - 1);
+        const drawOrder = new Int32Array(count);
+        for (let i = 0; i < count; i++) drawOrder[i] = frame.drawOrder[i + 1];
+        return ThreeRenderer.prototype.render.call(first.renderer, { ...frame, count, drawOrder });
+      };
+    }
     first.seek(0); const getterIngress = JSON.stringify(first.drawnFrame()) === JSON.stringify(bare.posedFrame());
     const ingress = captured.at(-1) === JSON.stringify(bare.posedFrame());
     const hidden = first.drawnFrame().order[0].slot; const filter = (slot: string) => slot !== hidden;
@@ -199,7 +219,7 @@ export async function refusals() {
   } finally { draw.dispose(); }
 }
 
-const api = { format, geometry, picture, lifecycle, stateProbe, refusals, bufferBoundary };
+const api = { format, geometry, picture, lifecycle, stateProbe, refusals, bufferBoundary, oracleRetentionProbe, liveLeaseProbe, livePictureProbe, poseColumnProbe };
 declare global { interface Window { threeHarness: typeof api } }
 window.threeHarness = api;
 
@@ -226,4 +246,265 @@ export async function bufferBoundary() {
     return { transition, active, destroyed, glError: renderer.getContext().getError() };
   } finally { draw.dispose(); observed.restore(); }
 }
-Object.assign(api, { bufferBoundary });
+
+export async function oracleRetentionProbe(rigName: string) {
+  const assets = await assetsFor(rigName), renderer = host(900, 640);
+  const rig = new ThreeRig(assets, { renderer, poser: 'oracle', liveFrameChecks: true });
+  try {
+    rig.play(rigName === 'figure' ? 'mask' : assets.animations[0].name);
+    rig.advance(0.125);
+    const drawn = rig.drawnFrame(), saved = JSON.stringify(drawn);
+    const equalCurrent = saved === JSON.stringify(rig.player.posedFrame());
+    const live = rig.player.liveFrame(), vertices = live.vertices, before = [...rig.children];
+    rig.player.seek(0.7);
+    const retainedLastDraw = rig.drawnFrame() === drawn && JSON.stringify(rig.drawnFrame()) === saved;
+    let staleRefused = false, nestedStale = false;
+    try { rig.renderer.render(live); } catch (error) { staleRefused = String(error).includes('LIVE_FRAME_STALE'); }
+    try { void vertices[0]; } catch (error) { nestedStale = String(error).includes('LIVE_FRAME_STALE'); }
+    const unchangedScene = before.length === rig.children.length && before.every((view, i) => view === rig.children[i]);
+    rig.advance(1 / 60);
+    return {
+      poser: rig.player.poser, equalCurrent, retainedLastDraw, staleRefused, nestedStale, unchangedScene,
+      retainedAfterNextDraw: JSON.stringify(drawn) === saved,
+      nextEqualCurrent: JSON.stringify(rig.drawnFrame()) === JSON.stringify(rig.player.posedFrame()),
+    };
+  } finally { rig.destroy(); }
+}
+
+export async function liveLeaseProbe(options: { rigName: string; checked: boolean; mutant?: 'snapshot' | 'buffers' | 'last-drawn' | 'fresh-lease' | 'metadata-cache' }) {
+  const assets = await loadModel({ modelUrl: `/bench/${options.rigName}/skeleton.model.json`, regions: 'none', setsUrl: null });
+  const renderer = host(900, 640), scene = new Scene(), camera = new OrthographicCamera(-450, 450, 320, -320, 0.1, 2000); camera.position.z = 1000;
+  const rig = new ThreeRig(assets, { renderer, liveFrameChecks: options.checked });
+  scene.add(rig);
+  try {
+    rig.play('walk', { loop: true });
+    const duration = assets.animations.find((a) => a.name === 'walk')!.duration;
+    for (let i = 0; i <= Math.ceil(duration * 60); i++) rig.advance(1 / 60);
+    renderer.render(scene, camera);
+    const poser = rig.player.poser;
+    const meshes = views(rig);
+    const buffers = meshes.map((mesh) => [
+      mesh.geometry.getAttribute('position'),
+      mesh.geometry.getAttribute('uv'),
+      mesh.geometry.getIndex(),
+    ]);
+    const snapshot = rig.player.posedFrame.bind(rig.player);
+    let snapshotCalls = 0;
+    rig.player.posedFrame = () => { snapshotCalls++; throw new Error('HOT_LOOP_SNAPSHOT'); };
+    let hotError: string | null = null;
+    try {
+      rig.play('walk', { loop: true });
+      for (let i = 0; i < 20; i++) {
+        rig.advance(1 / 60);
+        rig.seek((i + 1) / 60);
+        if (options.mutant === 'snapshot') rig.player.posedFrame();
+        if (options.mutant === 'buffers' && meshes[0]) meshes[0].geometry.setAttribute('position', new BufferAttribute(new Float32Array(meshes[0].geometry.getAttribute('position').array.length), 3));
+      }
+    } catch (error) { hotError = error instanceof Error ? error.message : String(error); }
+    finally { rig.player.posedFrame = snapshot; }
+    renderer.render(scene, camera);
+    const stableBuffers = meshes.every((mesh, i) => buffers[i][0] === mesh.geometry.getAttribute('position') && buffers[i][1] === mesh.geometry.getAttribute('uv') && buffers[i][2] === mesh.geometry.getIndex());
+    let staticIndexReads = 0;
+    const watched = (source: LiveNumbers): LiveNumbers => new Proxy(source, {
+      get(target, property) {
+        if (typeof property === 'string' && /^\d+$/.test(property)) staticIndexReads++;
+        return Reflect.get(target, property, target);
+      },
+    });
+    const raw = rig.player.liveFrame();
+    const tracked: LiveFrame = {
+      generation: raw.generation, count: raw.count, drawOrder: raw.drawOrder, vertices: raw.vertices, tint: raw.tint,
+      attachments: raw.attachments.map((a) => ({ ...a, uvs: watched(a.uvs), triangles: watched(a.triangles) })),
+    };
+    rig.renderer.render(tracked);
+    const firstStaticIndexReads = staticIndexReads;
+    staticIndexReads = 0;
+    rig.renderer.alwaysReuploadGeometry = options.mutant === 'metadata-cache';
+    rig.renderer.render(tracked);
+    rig.renderer.alwaysReuploadGeometry = false;
+    const repeatedStaticIndexReads = staticIndexReads;
+    const current = snapshot(), drawn = rig.drawnFrame();
+    const equalCurrent = JSON.stringify(drawn) === JSON.stringify(current);
+    const saved = JSON.stringify(drawn);
+    if (options.mutant === 'last-drawn') rig.drawnFrame = () => rig.player.posedFrame();
+    rig.player.advance(0.137);
+    const lastDrawSurvivesDirectMutation = JSON.stringify(rig.drawnFrame()) === saved;
+    rig.advance(1 / 60);
+    const retainedSurvivesNextDraw = JSON.stringify(drawn) === saved;
+    const explicit = rig.draw();
+    const explicitSnapshotIdentity = rig.drawnFrame() === explicit;
+    const lease = rig.player.liveFrame();
+    const vertices = lease.vertices, tint = lease.tint, metadata = lease.attachments[lease.drawOrder[0]], uvs = metadata.uvs;
+    let readonlyRefused = false;
+    if (options.checked) {
+      try { void (vertices as unknown as { buffer: unknown }).buffer; }
+      catch (error) { readonlyRefused = String(error).includes('LIVE_FRAME_READONLY'); }
+    }
+    rig.player.advance(1 / 60);
+    const sceneState = (): string => JSON.stringify({
+      resources: rig.resourceCounts(),
+      uploads: [rig.renderer.positionUploadCount, rig.renderer.geometryUploadCount],
+      views: views(rig).map((mesh) => ({
+        name: mesh.name, renderOrder: mesh.renderOrder,
+        positions: Array.from(mesh.geometry.getAttribute('position').array),
+      })),
+    });
+    const before = sceneState();
+    let staleRefused = false;
+    try { rig.renderer.render(options.mutant === 'fresh-lease' ? rig.player.liveFrame() : lease); }
+    catch (error) { staleRefused = String(error).includes('LIVE_FRAME_STALE'); }
+    const sceneUnchanged = before === sceneState();
+    const stale = (read: () => unknown): boolean => {
+      try { read(); return false; } catch (error) { return String(error).includes('LIVE_FRAME_STALE'); }
+    };
+    const nestedStale = options.checked ? [() => vertices[0], () => tint[0], () => uvs[0], () => metadata.page].every(stale) : null;
+    let colorInvalidates = false;
+    if (options.checked) {
+      const colorLease = rig.player.liveFrame();
+      rig.player.color[0] *= 0.5;
+      rig.player.liveFrame();
+      colorInvalidates = stale(() => colorLease.tint[0]);
+    }
+    return {
+      poser, meshCount: meshes.length, snapshotCalls, hotError, stableBuffers, equalCurrent,
+      firstStaticIndexReads, repeatedStaticIndexReads,
+      lastDrawSurvivesDirectMutation, retainedSurvivesNextDraw, explicitSnapshotIdentity,
+      readonlyRefused, staleRefused, sceneUnchanged, nestedStale, colorInvalidates,
+    };
+  } finally { rig.destroy(); assets.dispose(); }
+}
+
+export async function livePictureProbe(options: {
+  rigName: string; animation?: string; time: number; pma?: boolean; poser?: 'auto' | 'oracle';
+  mutant?: 'vertices' | 'clip' | 'dark' | 'pma' | 'order';
+}) {
+  const publicBench = options.rigName === 'spineboy' || options.rigName === 'raptor';
+  const baseAssets = publicBench
+    ? await loadModel({ modelUrl: `/bench/${options.rigName}/skeleton.model.json`, regions: 'none', setsUrl: null })
+    : await assetsFor(options.rigName);
+  const urls: string[] = [];
+  let assets = baseAssets;
+  if (options.pma) {
+    const pages = new Map<string, HTMLImageElement>();
+    for (const [name, page] of baseAssets.pageImages) {
+      const twin = await makePremultipliedTwinImage(page);
+      pages.set(name, twin.image); urls.push(twin.url);
+    }
+    assets = { ...baseAssets, pageImages: pages };
+  }
+  const player = new RigPlayer(document.createElement('div'), baseAssets, { mode: 'canvas', poser: options.poser ?? 'oracle', liveFrameChecks: true });
+  const animation = options.animation ?? baseAssets.animations[0].name;
+  player.play(animation, { loop: true }); player.seek(options.time);
+  const original = player.posedFrame();
+  const snapshot: PosedFrame = options.pma ? { order: original.order.map((slot) => ({ ...slot, pma: true })) } : original;
+  const borrowed = player.liveFrame();
+  let live: LiveFrame = borrowed;
+  if (options.pma || options.mutant) {
+    const vertices = new Float64Array(borrowed.vertices.length);
+    for (let i = 0; i < vertices.length; i++) vertices[i] = borrowed.vertices[i] + (options.mutant === 'vertices' && i % 2 === 0 ? 20 : 0);
+    const drawOrder = new Int32Array(borrowed.count);
+    for (let i = 0; i < drawOrder.length; i++) drawOrder[i] = borrowed.drawOrder[options.mutant === 'order' ? drawOrder.length - 1 - i : i];
+    const attachments = borrowed.attachments.map((a) => ({
+      ...a,
+      pma: options.mutant === 'pma' ? false : options.pma ? true : a.pma,
+      clip: options.mutant === 'clip' ? null : a.clip,
+      dark: options.mutant === 'dark' ? null : a.dark,
+    }));
+    live = { generation: borrowed.generation, count: borrowed.count, vertices, drawOrder, tint: borrowed.tint, attachments };
+  }
+  const box = bounds(snapshot), renderer = host(box.width, box.height), camera = cameraFor(box), scene = new Scene(), root = new Group(); scene.add(root);
+  const gl = renderer.getContext();
+  const readPixels = (): Uint8Array => {
+    const out = new Uint8Array(box.width * box.height * 4);
+    gl.finish(); gl.readPixels(0, 0, box.width, box.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
+    return out;
+  };
+  const old = new ThreeRenderer(root, assets, renderer), liveRenderer = new ThreeRenderer(root, assets, renderer);
+  try {
+    old.render(snapshot); renderer.render(scene, camera); const expected = readPixels();
+    old.dispose();
+    liveRenderer.render(live); renderer.render(scene, camera); const actual = readPixels();
+    let byteDifferences = 0, contentPixels = 0;
+    for (let i = 0; i < actual.length; i++) if (actual[i] !== expected[i]) byteDifferences++;
+    for (let i = 3; i < expected.length; i += 4) if (expected[i] !== 0) contentPixels++;
+    return {
+      byteDifferences, contentPixels, poser: player.poser, order: snapshot.order.length,
+      clips: snapshot.order.filter((slot) => slot.clip).length, darks: snapshot.order.filter((slot) => slot.dark).length,
+      blends: Array.from(new Set(snapshot.order.map((slot) => slot.blend))), pma: options.pma ?? false,
+    };
+  } finally {
+    old.dispose(); liveRenderer.dispose(); player.dispose();
+    if (publicBench) baseAssets.dispose();
+    for (const url of urls) URL.revokeObjectURL(url);
+  }
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const pos = (sorted.length - 1) * 0.5;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const next = sorted[base + 1];
+  return Number((next !== undefined ? sorted[base] + rest * (next - sorted[base]) : sorted[base]).toFixed(3));
+}
+
+export async function poseColumnProbe(options: { rigName: 'spineboy' | 'raptor'; instances?: number; warmupFrames?: number; measuredFrames?: number }) {
+  const instances = options.instances ?? 100, warmupFrames = options.warmupFrames ?? 30, measuredFrames = options.measuredFrames ?? 120;
+  const assets = await loadModel({ modelUrl: `/bench/${options.rigName}/skeleton.model.json`, regions: 'none', setsUrl: null });
+  const renderer = host(900, 640), scene = new Scene(), camera = new OrthographicCamera(-450, 450, 320, -320, 0.1, 2000); camera.position.z = 1000;
+  const gl = renderer.getContext();
+  const duration = assets.animations.find((a) => a.name === 'walk')!.duration;
+  const rigs: ThreeRig[] = [];
+  const posedFrames = new Array<PosedFrame>(instances);
+  const liveFrames = new Array<LiveFrame>(instances);
+  for (let i = 0; i < instances; i++) {
+    const rig = new ThreeRig(assets, { renderer, liveFrameChecks: false });
+    scene.add(rig);
+    rigs.push(rig);
+  }
+  const resetPhase = () => {
+    for (let i = 0; i < instances; i++) {
+      rigs[i].player.play('walk', { loop: true });
+      const phase = ((i % instances) / instances) * duration;
+      if (phase > 0) rigs[i].player.advance(phase);
+    }
+  };
+  const runArm = (mode: 'snapshot' | 'live') => {
+    resetPhase();
+    const dt = 1 / 60;
+    const poseStep = () => {
+      for (let i = 0; i < instances; i++) {
+        rigs[i].player.advance(dt);
+        if (mode === 'snapshot') posedFrames[i] = rigs[i].player.posedFrame();
+        else liveFrames[i] = rigs[i].player.liveFrame();
+      }
+    };
+    const drawStep = () => {
+      for (let i = 0; i < instances; i++) {
+        if (mode === 'snapshot') rigs[i].renderer.render(posedFrames[i]);
+        else rigs[i].renderFrame(liveFrames[i]);
+      }
+      renderer.render(scene, camera);
+    };
+    for (let f = 0; f < warmupFrames; f++) { poseStep(); drawStep(); }
+    gl.finish();
+    const poseTimes = new Array<number>(measuredFrames), drawTimes = new Array<number>(measuredFrames), frameTimes = new Array<number>(measuredFrames);
+    for (let f = 0; f < measuredFrames; f++) {
+      const t0 = performance.now();
+      poseStep();
+      const t1 = performance.now();
+      drawStep(); gl.finish();
+      const t2 = performance.now();
+      poseTimes[f] = t1 - t0; drawTimes[f] = t2 - t1; frameTimes[f] = t2 - t0;
+    }
+    return { poseP50Ms: median(poseTimes), drawP50Ms: median(drawTimes), p50Ms: median(frameTimes) };
+  };
+  try {
+    const before = runArm('snapshot');
+    const after = runArm('live');
+    return { rigName: options.rigName, instances, warmupFrames, measuredFrames, before, after };
+  } finally {
+    for (const rig of rigs) rig.destroy();
+    assets.dispose();
+  }
+}

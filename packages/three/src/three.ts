@@ -1,4 +1,13 @@
-import { RigPlayer, type ModelAssets, type PosedFrame, type PosedSlot, type PlayOptions, type SlotFilter, type PoseBounds, type BoneWorld } from '@rig-c/play';
+import {
+  type DrawNumbers,
+  type DrawSlot,
+  LiveDrawViews,
+  numberCount,
+  numberOffset,
+  numberSource,
+  RetainedRuntimeFrame,
+} from '@rig-c/adapters-shared';
+import { RigPlayer, type BlendMode, type LiveFrame, type LiveNumbers, type ModelAssets, type PosedFrame, type PosedSlot, type PlayOptions, type SlotFilter, type PoseBounds, type BoneWorld } from '@rig-c/play';
 import {
   AddEquation, BufferAttribute, BufferGeometry, CustomBlending, DataTexture, DoubleSide,
   DstColorFactor, DynamicDrawUsage, FloatType, GLSL3, Group, LinearFilter, Mesh, NearestFilter,
@@ -53,9 +62,31 @@ void main() {
   outColor = vec4((t.rgb * light.rgb + (t.a - t.rgb) * dark) * light.a, t.a * light.a);
 }`;
 
-type Prepared = { slot: PosedSlot; image: HTMLImageElement; positions: number[]; indices: readonly number[]; polygon: number[] | null };
+type Prepared = {
+  slot: PosedSlot | DrawSlot;
+  key: string;
+  image: HTMLImageElement;
+  positions: DrawNumbers;
+  indices: LiveNumbers;
+  polygon: number[] | null;
+  light: [number, number, number, number];
+  dark: [number, number, number];
+  inverse: boolean;
+  blend: BlendMode;
+};
 export interface ThreeSlotMesh extends Mesh<BufferGeometry, ShaderMaterial> { posedSlot: PosedSlot }
-type Entry = { mesh: ThreeSlotMesh; polygon: DataTexture | null; polygonValues: number[]; uvs: readonly number[] | null; indices: readonly number[] | null };
+type Entry = {
+  mesh: ThreeSlotMesh;
+  polygon: DataTexture | null;
+  polygonValues: number[];
+  uvs: LiveNumbers | null;
+  indices: LiveNumbers | null;
+  light: [number, number, number, number];
+  dark: [number, number, number];
+  inverse: boolean;
+  blend: BlendMode;
+  needsWideIndex: boolean;
+};
 export interface ThreeRigResourceCounts { meshes: number; geometries: number; materials: number; clipTextures: number; retainedPages: number; livePageTextures: number }
 
 /** Native meshes in Y-up local space. The application owns the WebGL renderer and camera. */
@@ -70,6 +101,7 @@ export class ThreeRenderer {
   private readonly pool = new Map<string, Entry>();
   private readonly materials = new Map<HTMLImageElement, ShaderMaterial>();
   private readonly retained = new Set<HTMLImageElement>();
+  private readonly liveViews = new LiveDrawViews('ThreeRenderer');
   constructor(readonly root: Group, readonly assets: ModelAssets, readonly host: WebGLRenderer) {
     if (!root?.isGroup || !assets || !(assets.pageImages instanceof Map) || !isWebGLHost(host)) throw new Error('ThreeRenderer: expected Group, ModelAssets.pageImages Map and WebGLRenderer');
   }
@@ -79,30 +111,64 @@ export class ThreeRenderer {
     return { meshes: this.pool.size, geometries: this.pool.size, materials: this.materials.size, clipTextures: [...this.pool.values()].filter((e) => e.polygon !== null).length, retainedPages: this.retained.size, livePageTextures: livePages.size };
   }
   getPageTexture(name: string): Texture | undefined { const image = this.assets.pageImages.get(name); return image && this.retained.has(image) ? pages.get(image)?.texture : undefined; }
-  private prepare(slot: PosedSlot): Prepared {
+  private prepare(slot: PosedSlot | DrawSlot, key: string, indexed: boolean): Prepared {
     const detail = `ThreeRenderer: slot "${slot?.slot ?? '<unnamed>'}" on page "${slot?.page ?? '<unnamed>'}"`;
     const fail = (why: string): never => { throw new Error(`${detail}: ${why}`); };
     if (!slot || (slot.kind !== 'region' && slot.kind !== 'mesh')) fail(`kind=${String(slot && (slot as { kind?: unknown }).kind)} (expected region or mesh)`);
     if (typeof slot.slot !== 'string' || slot.slot.length === 0 || typeof slot.page !== 'string' || slot.page.length === 0) fail('expected non-empty slot and page names');
     if (!['Normal', 'Additive', 'Multiply', 'Screen'].includes(slot.blend)) fail(`blend=${slot.blend} (expected Normal, Additive, Multiply, Screen)`);
     if (typeof slot.pma !== 'boolean') fail(`pma=${String(slot.pma)} (expected boolean)`);
-    if (!Number.isFinite(slot.z)) fail(`z=${String(slot.z)} (expected finite draw-order index)`);
+    if (!indexed && !Number.isFinite((slot as PosedSlot).z)) fail(`z=${String((slot as PosedSlot).z)} (expected finite draw-order index)`);
     const image = this.assets.pageImages.get(slot.page);
     if (!image || !(image.naturalWidth > 0 && image.naturalHeight > 0)) fail('page image absent or not decoded (expected positive naturalWidth/naturalHeight)');
-    const valid = (values: readonly number[], count: number, field: string) => {
-      if (!Array.isArray(values) || values.length !== count) fail(`${field} length=${values?.length} (expected ${count})`);
-      for (let i = 0; i < count; i++) if (!Number.isFinite(values[i]) || !Number.isFinite(Math.fround(values[i]))) fail(`${field}[${i}]=${String(values[i])} (expected finite float32)`);
+    const valid = (values: DrawNumbers, count: number, field: string) => {
+      const source = numberSource(values), offset = numberOffset(values), length = numberCount(values);
+      if ((!indexed && !Array.isArray(values)) || length !== count) fail(`${field} length=${Array.isArray(values) || indexed ? length : undefined} (expected ${count})`);
+      for (let i = 0; i < count; i++) {
+        const value = source[offset + i];
+        if (!Number.isFinite(value) || !Number.isFinite(Math.fround(value))) fail(`${field}[${i}]=${String(value)} (expected finite float32)`);
+      }
     };
     valid(slot.tint, 4, 'tint'); if (slot.dark !== undefined) valid(slot.dark, 3, 'dark');
     const coords = slot.kind === 'region' ? slot.corners : slot.vertices;
-    if (!Array.isArray(coords) || coords.length < 6 || coords.length % 2 !== 0) fail(`positions length=${coords?.length} (expected even length >=6)`);
-    valid(coords, slot.kind === 'region' ? 8 : coords.length, slot.kind === 'region' ? 'corners' : 'vertices');
-    valid(slot.uvs, coords.length, 'uvs');
+    const coordCount = numberCount(coords);
+    if ((!indexed && !Array.isArray(coords)) || coordCount < 6 || coordCount % 2 !== 0) fail(`positions length=${Array.isArray(coords) || indexed ? coordCount : undefined} (expected even length >=6)`);
+    valid(coords, slot.kind === 'region' ? 8 : coordCount, slot.kind === 'region' ? 'corners' : 'vertices');
+    const prior = this.pool.get(key);
+    const priorPositions = prior?.mesh.geometry.getAttribute('position');
+    const sameVertexCount = !this.alwaysReuploadGeometry && prior !== undefined && priorPositions !== undefined && priorPositions.array.length === (coordCount / 2) * 3;
+    if (!sameVertexCount || prior.uvs !== slot.uvs) {
+      valid(slot.uvs, coordCount, 'uvs');
+    }
     const indices = slot.kind === 'region' ? REGION_INDICES : slot.triangles;
-    if (!Array.isArray(indices) || indices.length < 3 || indices.length % 3 !== 0) fail(`triangles length=${indices?.length} (expected multiple of three >=3)`);
-    indices.forEach((v, i) => { if (!Number.isInteger(v) || v < 0 || v >= coords.length / 2) fail(`triangles[${i}]=${v} (expected integer 0..${coords.length / 2 - 1})`); });
-    if (slot.kind === 'mesh' && !Number.isInteger(slot.sequence)) fail(`sequence=${slot.sequence} (expected integer)`);
-    return { slot, image: image!, positions: coords, indices, polygon: slot.clip !== undefined ? clipPolygon(slot.clip, detail, this.host.capabilities.maxTextureSize) : null };
+    if (!sameVertexCount || prior.indices !== indices) {
+      if ((!indexed && !Array.isArray(indices)) || indices.length < 3 || indices.length % 3 !== 0) fail(`triangles length=${indices?.length} (expected multiple of three >=3)`);
+      for (let i = 0; i < indices.length; i++) {
+        const v = indices[i];
+        if (!Number.isInteger(v) || v < 0 || v >= coordCount / 2) fail(`triangles[${i}]=${v} (expected integer 0..${coordCount / 2 - 1})`);
+      }
+    }
+    if (!indexed && slot.kind === 'mesh' && !Number.isInteger(slot.sequence)) fail(`sequence=${slot.sequence} (expected integer)`);
+    const tintSource = numberSource(slot.tint), tintOffset = numberOffset(slot.tint);
+    const light: [number, number, number, number] = [
+      tintSource[tintOffset + 0],
+      tintSource[tintOffset + 1],
+      tintSource[tintOffset + 2],
+      tintSource[tintOffset + 3],
+    ];
+    const dark: [number, number, number] = slot.dark ? [slot.dark[0], slot.dark[1], slot.dark[2]] : [0, 0, 0];
+    return {
+      slot,
+      key,
+      image: image!,
+      positions: coords,
+      indices,
+      polygon: slot.clip !== undefined ? clipPolygon(slot.clip, detail, this.host.capabilities.maxTextureSize, indexed) : null,
+      light,
+      dark,
+      inverse: slot.clip?.inverse ?? false,
+      blend: slot.blend,
+    };
   }
   private material(item: Prepared): ShaderMaterial {
     let material = this.materials.get(item.image);
@@ -123,54 +189,143 @@ export class ThreeRenderer {
     });
     this.materials.set(item.image, material); return material;
   }
-  render(frame: PosedFrame): void {
+  render(frame: PosedFrame | LiveFrame): void {
     if (this.disposed) throw new Error('ThreeRenderer: render called after dispose (expected active renderer)');
-    if (!frame || !Array.isArray(frame.order)) throw new Error('ThreeRenderer: frame.order absent (expected PosedSlot array)');
+    if (!frame || typeof frame !== 'object') throw new Error('ThreeRenderer: frame.order absent (expected PosedSlot array)');
+    if ('order' in frame) {
+      if (!Array.isArray(frame.order)) throw new Error('ThreeRenderer: frame.order absent (expected PosedSlot array)');
+      this.renderOrder(frame.order, false);
+      return;
+    }
+    try {
+      this.renderOrder(this.liveViews.read(frame), true);
+    } finally {
+      this.liveViews.release();
+    }
+  }
+  private renderOrder(order: readonly (PosedSlot | DrawSlot)[], indexed: boolean): void {
     // Validate the complete frame, including cross-slot page conventions, before any allocation or scene mutation.
-    const prepared = frame.order.map((s) => this.prepare(s));
+    const occurrences = new Map<string, number>();
+    const prepared = order.map((s) => {
+      const slotName = typeof s?.slot === 'string' && s.slot.length > 0 ? s.slot : '<unnamed>';
+      const occurrence = occurrences.get(slotName) ?? 0; occurrences.set(slotName, occurrence + 1);
+      return this.prepare(s, `${slotName}\0${occurrence}`, indexed);
+    });
     const conventions = new Map<HTMLImageElement, boolean>();
     for (const item of prepared) {
       const pma = conventions.get(item.image) ?? pages.get(item.image)?.pma;
       if (pma !== undefined && pma !== item.slot.pma) throw new Error(`ThreeRenderer: slot "${item.slot.slot}" page "${item.slot.page}" pma=${item.slot.pma} conflicts with retained pma=${pma} (expected one convention per page image)`);
       conventions.set(item.image, item.slot.pma);
     }
-    const occurrences = new Map<string, number>();
     const active: ThreeSlotMesh[] = [];
     prepared.forEach((item, index) => {
-      const occurrence = occurrences.get(item.slot.slot) ?? 0; occurrences.set(item.slot.slot, occurrence + 1);
-      const key = `${item.slot.slot}\0${occurrence}`;
+      const { key } = item;
       let entry = this.pool.get(key);
       if (!entry) {
         const geometry = new BufferGeometry();
         const mesh = new Mesh(geometry, this.material(item)) as ThreeSlotMesh;
         mesh.frustumCulled = false; mesh.name = item.slot.slot;
-        entry = { mesh, polygon: null, polygonValues: [], uvs: null, indices: null };
+        entry = {
+          mesh,
+          polygon: null,
+          polygonValues: [],
+          uvs: null,
+          indices: null,
+          light: item.light,
+          dark: item.dark,
+          inverse: item.inverse,
+          blend: item.blend,
+          needsWideIndex: false,
+        };
+        const current = entry;
+        mesh.onBeforeRender = () => {
+          const material = mesh.material;
+          material.uniforms.light.value = current.light; material.uniforms.dark.value = current.dark;
+          material.uniforms.polygon.value = current.polygon ?? material.uniforms.page.value;
+          material.uniforms.points.value = current.polygon === null ? 0 : current.polygonValues.length / 2;
+          material.uniforms.inverse.value = current.inverse;
+          material.blendEquation = material.blendEquationAlpha = AddEquation;
+          material.blendSrc = current.blend === 'Multiply' ? DstColorFactor : OneFactor;
+          material.blendDst = current.blend === 'Additive' ? OneFactor : current.blend === 'Screen' ? OneMinusSrcColorFactor : OneMinusSrcAlphaFactor;
+          material.blendSrcAlpha = OneFactor; material.blendDstAlpha = material.blendDst;
+          material.uniformsNeedUpdate = true;
+        };
         this.pool.set(key, entry);
       }
       const { mesh } = entry;
+      const positionCount = numberCount(item.positions);
       const oldPositions = mesh.geometry.getAttribute('position'), oldUVs = mesh.geometry.getAttribute('uv'), oldIndex = mesh.geometry.getIndex();
-      const needsWideIndex = item.indices.some((v) => v >= 65535);
-      if ((oldPositions && oldPositions.array.length !== item.positions.length / 2 * 3) || (oldUVs && oldUVs.array.length !== item.slot.uvs.length) || (oldIndex && (oldIndex.count !== item.indices.length || (needsWideIndex && !(oldIndex.array instanceof Uint32Array))))) {
+      let needsWideIndex = entry.needsWideIndex;
+      if (this.alwaysReuploadGeometry || entry.indices !== item.indices || !oldIndex) {
+        needsWideIndex = false;
+        if (positionCount / 2 > 65535) {
+          for (let i = 0; i < item.indices.length; i++) if (item.indices[i] >= 65535) { needsWideIndex = true; break; }
+        }
+        entry.needsWideIndex = needsWideIndex;
+      }
+      if ((oldPositions && oldPositions.array.length !== positionCount / 2 * 3) || (oldUVs && oldUVs.array.length !== item.slot.uvs.length) || (oldIndex && (oldIndex.count !== item.indices.length || (needsWideIndex && !(oldIndex.array instanceof Uint32Array))))) {
         // Dispose while the old attributes are still attached, so Three deletes every old GPU buffer.
         mesh.geometry.dispose(); mesh.geometry = new BufferGeometry(); entry.uvs = entry.indices = null;
       }
-      mesh.posedSlot = item.slot; mesh.material = this.material(item); mesh.renderOrder = index;
-      const update = (name: 'position' | 'uv', values: number[], size: number, force: boolean) => {
-        let attribute = mesh.geometry.getAttribute(name) as BufferAttribute | undefined;
-        let changed = force || !attribute || attribute.array.length !== values.length;
-        if (!attribute || attribute.array.length !== values.length) { attribute = new BufferAttribute(new Float32Array(values.length), size).setUsage(DynamicDrawUsage); mesh.geometry.setAttribute(name, attribute); }
-        const array = attribute.array as Float32Array;
-        for (let i = 0; i < values.length; i++) if (array[i] !== Math.fround(values[i])) { array[i] = values[i]; changed = true; }
-        if (changed) { attribute.needsUpdate = true; if (name === 'position') this.positionUploadCount++; else this.uvUploadCount++; }
-      };
-      const xyz: number[] = [];
-      for (let i = 0; i < item.positions.length; i += 2) xyz.push(item.positions[i], item.positions[i + 1], 0);
-      update('position', xyz, 3, this.alwaysReuploadGeometry);
-      if (this.alwaysReuploadGeometry || entry.uvs !== item.slot.uvs) { update('uv', item.slot.uvs, 2, true); entry.uvs = item.slot.uvs; }
+      entry.light = item.light;
+      entry.dark = item.dark;
+      entry.inverse = item.inverse;
+      entry.blend = item.blend;
+      if (!indexed) {
+        mesh.posedSlot = item.slot as PosedSlot;
+      } else {
+        const prior = mesh.posedSlot as Partial<PosedSlot> | undefined;
+        if (!prior || prior.slot !== item.slot.slot || prior.page !== item.slot.page || prior.pma !== item.slot.pma || prior.kind !== item.slot.kind || prior.blend !== item.slot.blend) {
+          mesh.posedSlot = (item.slot.kind === 'region'
+            ? { kind: 'region', slot: item.slot.slot, z: 0, page: item.slot.page, region: item.slot.region, pma: item.slot.pma, blend: item.slot.blend, corners: [], uvs: [], tint: item.light }
+            : { kind: 'mesh', slot: item.slot.slot, z: 0, page: item.slot.page, pma: item.slot.pma, blend: item.slot.blend, vertices: [], uvs: [], triangles: [], sequence: 0, tint: item.light }) as PosedSlot;
+        }
+      }
+      mesh.material = this.material(item); mesh.renderOrder = index;
+      const posLength = (positionCount / 2) * 3;
+      let posAttr = mesh.geometry.getAttribute('position') as BufferAttribute | undefined;
+      let posChanged = this.alwaysReuploadGeometry || !posAttr || posAttr.array.length !== posLength;
+      if (!posAttr || posAttr.array.length !== posLength) {
+        posAttr = new BufferAttribute(new Float32Array(posLength), 3).setUsage(DynamicDrawUsage);
+        mesh.geometry.setAttribute('position', posAttr);
+      }
+      const posArray = posAttr.array as Float32Array;
+      const posSource = numberSource(item.positions), posOffset = numberOffset(item.positions);
+      for (let i = 0, out = 0; i < positionCount; i += 2, out += 3) {
+        const x = Math.fround(posSource[posOffset + i]), y = Math.fround(posSource[posOffset + i + 1]);
+        if (posArray[out] !== x || posArray[out + 1] !== y || posArray[out + 2] !== 0) {
+          posArray[out] = x; posArray[out + 1] = y; posArray[out + 2] = 0;
+          posChanged = true;
+        }
+      }
+      if (posChanged) { posAttr.needsUpdate = true; this.positionUploadCount++; }
+
+      if (this.alwaysReuploadGeometry || entry.uvs !== item.slot.uvs) {
+        const uvs = item.slot.uvs;
+        let uvAttr = mesh.geometry.getAttribute('uv') as BufferAttribute | undefined;
+        let uvChanged = true;
+        if (!uvAttr || uvAttr.array.length !== uvs.length) {
+          uvAttr = new BufferAttribute(new Float32Array(uvs.length), 2).setUsage(DynamicDrawUsage);
+          mesh.geometry.setAttribute('uv', uvAttr);
+        }
+        const uvArray = uvAttr.array as Float32Array;
+        for (let i = 0; i < uvs.length; i++) {
+          const v = Math.fround(uvs[i]);
+          if (uvArray[i] !== v) { uvArray[i] = v; uvChanged = true; }
+        }
+        if (uvChanged) { uvAttr.needsUpdate = true; this.uvUploadCount++; }
+        entry.uvs = uvs;
+      }
       if (this.alwaysReuploadGeometry || entry.indices !== item.indices) {
         const before = mesh.geometry.getIndex();
-        if (before && before.count === item.indices.length) { for (let i = 0; i < item.indices.length; i++) before.setX(i, item.indices[i]); before.needsUpdate = true; }
-        else mesh.geometry.setIndex([...item.indices]);
+        if (before && before.count === item.indices.length) {
+          for (let i = 0; i < item.indices.length; i++) before.setX(i, item.indices[i]);
+          before.needsUpdate = true;
+        } else {
+          const copied = new Array<number>(item.indices.length);
+          for (let i = 0; i < item.indices.length; i++) copied[i] = item.indices[i];
+          mesh.geometry.setIndex(copied);
+        }
         this.triangleUploadCount++; entry.indices = item.indices;
       }
       if (item.polygon !== null && (entry.polygon === null || item.polygon.length !== entry.polygonValues.length || item.polygon.some((v, i) => v !== entry!.polygonValues[i]))) {
@@ -181,19 +336,6 @@ export class ThreeRenderer {
         entry.polygon.minFilter = entry.polygon.magFilter = NearestFilter; entry.polygon.needsUpdate = true;
         entry.polygonValues = item.polygon;
       } else if (item.polygon === null && entry.polygon !== null) { entry.polygon.dispose(); entry.polygon = null; entry.polygonValues = []; }
-      const current = entry;
-      mesh.onBeforeRender = () => {
-        const material = mesh.material, slot = mesh.posedSlot;
-        material.uniforms.light.value = slot.tint; material.uniforms.dark.value = slot.dark ?? [0, 0, 0];
-        material.uniforms.polygon.value = current.polygon ?? material.uniforms.page.value;
-        material.uniforms.points.value = current.polygon === null ? 0 : current.polygonValues.length / 2;
-        material.uniforms.inverse.value = slot.clip?.inverse ?? false;
-        material.blendEquation = material.blendEquationAlpha = AddEquation;
-        material.blendSrc = slot.blend === 'Multiply' ? DstColorFactor : OneFactor;
-        material.blendDst = slot.blend === 'Additive' ? OneFactor : slot.blend === 'Screen' ? OneMinusSrcColorFactor : OneMinusSrcAlphaFactor;
-        material.blendSrcAlpha = OneFactor; material.blendDstAlpha = material.blendDst;
-        material.uniformsNeedUpdate = true;
-      };
       active.push(mesh);
     });
     // Remove only our display objects; application-owned siblings survive.
@@ -225,35 +367,71 @@ export function readMeshScreenVertices(mesh: ThreeSlotMesh, camera: Camera, widt
   return result;
 }
 
-export interface ThreeRigOptions { renderer: WebGLRenderer; skin?: string; slots?: SlotFilter; timescale?: number; timeScale?: number }
+export interface ThreeRigOptions {
+  renderer: WebGLRenderer;
+  skin?: string;
+  slots?: SlotFilter;
+  timescale?: number;
+  timeScale?: number;
+  liveFrameChecks?: boolean;
+  poser?: 'auto' | 'oracle';
+}
 /** A flat native Group. Advance from the app's loop using seconds, without an internal clock. */
 export class ThreeRig extends Group {
   readonly player: RigPlayer;
   readonly renderer: ThreeRenderer;
-  private lastFrame: PosedFrame;
+  private readonly retainedRuntimeFrame = new RetainedRuntimeFrame('ThreeRig');
+  private lastFrame: PosedFrame | null = null;
   private destroyed = false;
   constructor(readonly assets: ModelAssets, options: ThreeRigOptions) {
     super();
     if (!assets?.document || !(assets.pageImages instanceof Map) || !isWebGLHost(options?.renderer)) throw new Error('ThreeRig: expected ModelAssets and options.renderer WebGLRenderer');
     const scale = options.timescale ?? options.timeScale ?? 1;
     if (!Number.isFinite(scale) || scale < 0) throw new Error(`ThreeRig: timescale=${scale} (expected finite number >=0)`);
-    this.player = new RigPlayer(document.createElement('div'), assets, { mode: assets.regions === 'none' ? 'canvas' : 'dom', skin: options.skin, slots: options.slots });
+    this.player = new RigPlayer(document.createElement('div'), assets, {
+      mode: assets.regions === 'none' ? 'canvas' : 'dom',
+      skin: options.skin,
+      slots: options.slots,
+      liveFrameChecks: options.liveFrameChecks,
+      poser: options.poser,
+    });
     this.renderer = new ThreeRenderer(this, assets, options.renderer);
     this.timescale = scale;
     try { this.lastFrame = this.draw(); } catch (error) { this.renderer.dispose(); this.player.dispose(); throw error; }
   }
   private active(): void { if (this.destroyed) throw new Error('ThreeRig: called after destroy (expected active rig)'); }
-  play(name: string, options: PlayOptions = {}): void { this.active(); this.player.play(name, options); this.draw(); }
-  seek(time: number): void { this.active(); if (!Number.isFinite(time)) throw new Error(`ThreeRig: time=${time} (expected finite seconds)`); this.player.seek(time); this.draw(); }
+  play(name: string, options: PlayOptions = {}): void { this.active(); this.player.play(name, options); this.drawCurrent(); }
+  seek(time: number): void { this.active(); if (!Number.isFinite(time)) throw new Error(`ThreeRig: time=${time} (expected finite seconds)`); this.player.seek(time); this.drawCurrent(); }
   advance(dt: number): void {
     this.active();
     if (!Number.isFinite(dt) || dt < 0) throw new Error(`ThreeRig: dt=${dt} (expected finite seconds >=0)`);
     if (this.timescale === 0) return;
-    this.player.advance(dt); this.draw();
+    this.player.advance(dt); this.drawCurrent();
   }
   update(dt: number): void { this.advance(dt); }
   draw(): PosedFrame { this.active(); const frame = this.player.posedFrame(); this.renderer.render(frame); this.lastFrame = frame; return frame; }
-  drawnFrame(): PosedFrame { this.active(); return this.lastFrame; }
+  renderFrame(frame: PosedFrame | LiveFrame): void {
+    this.active();
+    if ('order' in frame) {
+      this.renderer.render(frame);
+      this.lastFrame = frame;
+      return;
+    }
+    if (frame.generation !== this.player.generation) {
+      throw new Error(`ThreeRig: live frame generation ${frame.generation} needs current player generation ${this.player.generation}`);
+    }
+    if (this.player.poser !== 'runtime') {
+      this.renderFrame(this.player.posedFrame());
+      return;
+    }
+    this.renderer.render(frame);
+    this.retainedRuntimeFrame.capture(frame, () => this.player.posedFrame());
+    this.lastFrame = null;
+  }
+  private drawCurrent(): void {
+    this.renderFrame(this.player.poser === 'runtime' ? this.player.liveFrame() : this.player.posedFrame());
+  }
+  drawnFrame(): PosedFrame { this.active(); return this.lastFrame ??= this.retainedRuntimeFrame.snapshot(); }
   posedFrame(slots?: SlotFilter | null): PosedFrame { this.active(); return this.player.posedFrame(slots); }
   bone(name: string): BoneWorld { this.active(); return this.player.bone(name); }
   bounds(): PoseBounds | null { this.active(); return this.player.bounds(); }

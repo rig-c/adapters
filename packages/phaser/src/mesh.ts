@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import type { PosedSlot } from '@rig-c/play';
+import type { DrawSlot } from '@rig-c/adapters-shared';
+import type { LiveNumbers, PosedSlot } from '@rig-c/play';
 
 type Renderer = Phaser.Renderer.WebGL.WebGLRenderer;
 type Buffer = Phaser.Renderer.WebGL.Wrappers.WebGLBufferWrapper;
@@ -38,13 +39,15 @@ export interface SlotBuffers {
   uv: Buffer;
   index: Buffer;
   vao: VAO;
-  uvs: number[];
-  triangles: number[];
+  uvs: LiveNumbers;
+  triangles: LiveNumbers;
   count: number;
 }
 export interface SlotView extends Phaser.GameObjects.Mesh2D {
   tint: number;
   posedSlot: PosedSlot;
+  slotLight: [number, number, number];
+  slotDark: [number, number, number];
   slotBuffers?: SlotBuffers;
 }
 const regionTriangles = [0, 1, 2, 0, 2, 3];
@@ -60,6 +63,18 @@ function deleteVAO(renderer: Renderer, vao: VAO): void {
   vao.destroy();
 }
 
+function toFloat32(source: LiveNumbers): Float32Array<ArrayBuffer> {
+  const out = new Float32Array(source.length);
+  for (let i = 0; i < source.length; i++) out[i] = source[i];
+  return out;
+}
+
+function toUint16(source: LiveNumbers): Uint16Array<ArrayBuffer> {
+  const out = new Uint16Array(source.length);
+  for (let i = 0; i < source.length; i++) out[i] = source[i];
+  return out;
+}
+
 /** Native standalone drawing: positions change independently of UV/topology. */
 export class FrameSubmitter extends Phaser.Renderer.WebGL.RenderNodes.RenderNode {
   readonly program: Program;
@@ -72,16 +87,16 @@ export class FrameSubmitter extends Phaser.Renderer.WebGL.RenderNodes.RenderNode
     this.program = renderer.createProgram(vertexShader, fragmentShader);
   }
 
-  private allocate(view: SlotView): SlotBuffers {
-    const renderer = this.renderer, gl = renderer.gl, slot = view.posedSlot;
+  private allocate(view: SlotView, slot: PosedSlot | DrawSlot): SlotBuffers {
+    const renderer = this.renderer, gl = renderer.gl;
     const triangles = slot.kind === 'region' ? regionTriangles : slot.triangles;
-    const vertices = slot.kind === 'region' ? slot.corners : slot.vertices;
+    const vertexCount = view.vertices.length / 4;
     unbindVAO(renderer);
-    const position = renderer.createVertexBuffer(new ArrayBuffer(vertices.length * 4), gl.DYNAMIC_DRAW);
-    const uv = renderer.createVertexBuffer(new Float32Array(slot.uvs).buffer, gl.STATIC_DRAW);
-    const index = renderer.createIndexBuffer(new Uint16Array(triangles).buffer, gl.STATIC_DRAW);
-    const vao = this.createVAO(position, uv, index, vertices.length / 2);
-    const buffers = { position, uv, index, vao, uvs: slot.uvs, triangles, count: triangles.length };
+    const position = renderer.createVertexBuffer(new ArrayBuffer(vertexCount * 8), gl.DYNAMIC_DRAW);
+    const uv = renderer.createVertexBuffer(toFloat32(slot.uvs).buffer, gl.STATIC_DRAW);
+    const index = renderer.createIndexBuffer(toUint16(triangles).buffer, gl.STATIC_DRAW);
+    const vao = this.createVAO(position, uv, index, vertexCount);
+    const buffers: SlotBuffers = { position, uv, index, vao, uvs: slot.uvs, triangles, count: triangles.length };
     this.owned.set(view, buffers); view.slotBuffers = buffers;
     return buffers;
   }
@@ -94,6 +109,44 @@ export class FrameSubmitter extends Phaser.Renderer.WebGL.RenderNodes.RenderNode
     return createVAO.call(renderer, this.program, index, [pLayout, uvLayout]);
   }
 
+  syncBuffers(view: SlotView, slot: PosedSlot | DrawSlot): SlotBuffers {
+    const renderer = this.renderer;
+    const triangles = slot.kind === 'region' ? regionTriangles : slot.triangles;
+    let buffers = this.owned.get(view);
+    if (!buffers) {
+      buffers = this.allocate(view, slot);
+      if (this.alwaysReuploadGeometry) {
+        buffers.uv.update();
+        unbindVAO(renderer);
+        buffers.index.update();
+      }
+      return buffers;
+    }
+    let rebuildVAO = false;
+    const replace = (field: 'position' | 'uv' | 'index', values: Float32Array<ArrayBuffer> | Uint16Array<ArrayBuffer>, index = false) => {
+      if (!rebuildVAO) { deleteVAO(renderer, buffers!.vao); rebuildVAO = true; }
+      renderer.deleteBuffer(buffers![field]);
+      unbindVAO(renderer);
+      buffers![field] = index ? renderer.createIndexBuffer(values.buffer, renderer.gl.STATIC_DRAW) : renderer.createVertexBuffer(values.buffer, field === 'position' ? renderer.gl.DYNAMIC_DRAW : renderer.gl.STATIC_DRAW);
+    };
+    const vertexCount = view.vertices.length / 4;
+    if (buffers.position.dataBuffer.byteLength !== vertexCount * 8) replace('position', new Float32Array(vertexCount * 2));
+    if (this.alwaysReuploadGeometry || buffers.uvs !== slot.uvs) {
+      const values = toFloat32(slot.uvs);
+      if (buffers.uv.dataBuffer.byteLength !== values.byteLength) replace('uv', values);
+      else { buffers.uv.viewF32!.set(values); buffers.uv.update(); }
+      buffers.uvs = slot.uvs;
+    }
+    if (this.alwaysReuploadGeometry || buffers.triangles !== triangles) {
+      const values = toUint16(triangles);
+      if (buffers.index.dataBuffer.byteLength !== values.byteLength) replace('index', values, true);
+      else { unbindVAO(renderer); buffers.index.viewU16!.set(values); buffers.index.update(); }
+      buffers.triangles = triangles; buffers.count = triangles.length;
+    }
+    if (rebuildVAO) buffers.vao = this.createVAO(buffers.position, buffers.uv, buffers.index, vertexCount);
+    return buffers;
+  }
+
   override run(context: Context, gameObject: Phaser.GameObjects.GameObject, parentMatrix: Phaser.GameObjects.Components.TransformMatrix, transformer: Transformer): void {
     const view = gameObject as SlotView, slot = view.posedSlot, renderer = this.renderer;
     renderer.renderNodes.finishBatch();
@@ -101,29 +154,7 @@ export class FrameSubmitter extends Phaser.Renderer.WebGL.RenderNodes.RenderNode
       this.program.checkParallelCompile();
       if (this.program.compiling) throw new Error(`PhaserRenderer: slot "${slot.slot}" shader is still compiling (expected ready program before drawing)`);
     }
-    const triangles = slot.kind === 'region' ? regionTriangles : slot.triangles;
-    const buffers = this.owned.get(view) ?? this.allocate(view);
-    let rebuildVAO = false;
-    const replace = (field: 'position' | 'uv' | 'index', values: Float32Array<ArrayBuffer> | Uint16Array<ArrayBuffer>, index = false) => {
-      if (!rebuildVAO) { deleteVAO(renderer, buffers.vao); rebuildVAO = true; }
-      renderer.deleteBuffer(buffers[field]);
-      unbindVAO(renderer);
-      buffers[field] = index ? renderer.createIndexBuffer(values.buffer, renderer.gl.STATIC_DRAW) : renderer.createVertexBuffer(values.buffer, field === 'position' ? renderer.gl.DYNAMIC_DRAW : renderer.gl.STATIC_DRAW);
-    };
-    if (buffers.position.dataBuffer.byteLength !== view.vertices.length / 4 * 8) replace('position', new Float32Array(view.vertices.length / 2));
-    if (buffers.uvs !== slot.uvs) {
-      const values = new Float32Array(slot.uvs);
-      if (buffers.uv.dataBuffer.byteLength !== values.byteLength) replace('uv', values);
-      else { buffers.uv.viewF32!.set(values); buffers.uv.update(); }
-      buffers.uvs = slot.uvs;
-    }
-    if (buffers.triangles !== triangles) {
-      const values = new Uint16Array(triangles);
-      if (buffers.index.dataBuffer.byteLength !== values.byteLength) replace('index', values, true);
-      else { unbindVAO(renderer); buffers.index.viewU16!.set(values); buffers.index.update(); }
-      buffers.triangles = triangles; buffers.count = triangles.length;
-    }
-    if (rebuildVAO) buffers.vao = this.createVAO(buffers.position, buffers.uv, buffers.index, view.vertices.length / 4);
+    const buffers = this.owned.get(view) ?? this.syncBuffers(view, slot);
     if (this.alwaysReuploadGeometry) { buffers.uv.update(); unbindVAO(renderer); buffers.index.update(); }
     transformer.setupMatrix(context, view, parentMatrix);
     const point = new Phaser.Math.Vector2();
@@ -143,8 +174,8 @@ export class FrameSubmitter extends Phaser.Renderer.WebGL.RenderNodes.RenderNode
       this.program.setUniform('uProjection', renderer.projectionMatrix.val);
       this.program.setUniform('uTexture', 0);
       this.program.setUniform('uFlipV', view.flipV ? 1 : 0);
-      this.program.setUniform('uLight', slot.tint.slice(0, 3));
-      this.program.setUniform('uDark', slot.dark ?? [0, 0, 0]);
+      this.program.setUniform('uLight', view.slotLight);
+      this.program.setUniform('uDark', view.slotDark);
       this.program.setUniform('uAlpha', view.alpha);
       const page = view.texture.source[0].glTexture;
       if (!page) throw new Error(`PhaserRenderer: slot "${slot.slot}" has no native texture (expected uploaded page)`);
