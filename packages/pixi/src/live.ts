@@ -8,11 +8,33 @@ export type DrawMesh = Omit<PosedMesh, 'z' | 'vertices' | 'uvs' | 'triangles' | 
 };
 export type DrawSlot = DrawRegion | DrawMesh;
 const EMPTY: LiveNumbers = Object.freeze([]);
+const immutableLengths = new WeakSet<object>();
+const immutableMetadata = new WeakSet<LiveAttachment>();
+const IDENTITY_FIELDS = ['slot', 'slotIndex', 'attachment', 'skin', 'placeholder', 'kind', 'region', 'page', 'pma', 'blend', 'offset', 'count'];
 
-function numbers(value: LiveNumbers, field: string): void {
+/** Frozen own primitive fields cannot change through a prototype or getter. */
+function frozenData(value: LiveAttachment): boolean {
+  if (immutableMetadata.has(value)) return true;
+  if (!Object.isFrozen(value)) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (!IDENTITY_FIELDS.every(key => {
+    const descriptor = descriptors[key];
+    return descriptor && 'value' in descriptor &&
+      (descriptor.value === null || !['object', 'function'].includes(typeof descriptor.value));
+  })) return false;
+  immutableMetadata.add(value);
+  return true;
+}
+
+function numbers(value: LiveNumbers, field: string, slot?: string): void {
+  if (value && typeof value === 'object' && immutableLengths.has(value)) return;
   if (!value || typeof value !== 'object' || !Number.isInteger(value.length) || value.length < 0) {
-    throw new Error(`PixiRenderer: live ${field} needs an indexed buffer with nonnegative integer length`);
+    throw new Error(`PixiRenderer: live ${slot === undefined ? field : `slot "${slot}" ${field}`} needs an indexed buffer with nonnegative integer length`);
   }
+  // Only the length invariant is cached. Numeric contents are still validated
+  // by the renderer, and a replaced dark/clip buffer takes this check anew.
+  const length = Object.getOwnPropertyDescriptor(value, 'length');
+  if (length && 'value' in length && !length.writable && !length.configurable && Object.isFrozen(value)) immutableLengths.add(value);
 }
 
 /** Internal span, with no per-coordinate properties, accessors or proxies. */
@@ -33,29 +55,37 @@ interface Row { slot: DrawSlot; points: NumberSpan; tint: NumberSpan }
 export class LiveDrawViews {
   readonly order: DrawSlot[] = [];
   private readonly rows: Row[] = [];
+  private readonly validated = new WeakSet<LiveAttachment>();
 
   read(frame: LiveFrame): readonly DrawSlot[] {
     void frame.generation; // Checked stale leases refuse before scene mutation.
-    numbers(frame.drawOrder, 'drawOrder'); numbers(frame.vertices, 'vertices'); numbers(frame.tint, 'tint');
-    if (!Number.isInteger(frame.count) || frame.count < 0 || frame.count > frame.drawOrder.length) {
-      throw new Error(`PixiRenderer: live frame count=${frame.count} needs an integer in 0..${frame.drawOrder.length}`);
+    const { drawOrder, vertices, tint, attachments, count } = frame;
+    numbers(drawOrder, 'drawOrder'); numbers(vertices, 'vertices'); numbers(tint, 'tint');
+    if (!Number.isInteger(count) || count < 0 || count > drawOrder.length) {
+      throw new Error(`PixiRenderer: live frame count=${count} needs an integer in 0..${drawOrder.length}`);
     }
-    for (let i = 0; i < frame.count; i++) {
-      const index = frame.drawOrder[i];
-      const attachment = frame.attachments[index];
+    for (let i = 0; i < count; i++) {
+      const index = drawOrder[i];
+      const attachment = attachments[index];
       if (!Number.isInteger(index) || !attachment || (attachment.kind !== 'region' && attachment.kind !== 'mesh')) {
         throw new Error(`PixiRenderer: live drawOrder[${i}]=${index} needs a region or mesh attachment`);
       }
       const a = attachment;
-      if (typeof a.slot !== 'string' || a.slot.length === 0 || typeof a.page !== 'string' || a.page.length === 0 ||
-          (a.kind === 'region' && (typeof a.region !== 'string' || a.region.length === 0))) {
-        throw new Error(`PixiRenderer: live slot "${a.slot}" needs named slot, page and region metadata`);
+      if (!this.validated.has(a)) {
+        if (typeof a.slot !== 'string' || a.slot.length === 0 || typeof a.page !== 'string' || a.page.length === 0 ||
+            (a.kind === 'region' && (typeof a.region !== 'string' || a.region.length === 0))) {
+          throw new Error(`PixiRenderer: live slot "${a.slot}" needs named slot, page and region metadata`);
+        }
+        if (!Number.isInteger(a.offset) || !Number.isInteger(a.count) || a.offset < 0 || a.count < 0 ||
+            !Number.isInteger(a.slotIndex) || a.slotIndex < 0) {
+          throw new Error(`PixiRenderer: live slot "${a.slot}" has invalid vertex span ${a.offset}+${a.count} or tint slotIndex=${a.slotIndex}`);
+        }
+        if (frozenData(a)) this.validated.add(a);
       }
-      numbers(a.uvs, `slot "${a.slot}" uvs`); numbers(a.triangles, `slot "${a.slot}" triangles`);
-      if (a.dark !== null) numbers(a.dark, `slot "${a.slot}" dark`);
-      if (a.clip !== null) numbers(a.clip.polygon, `slot "${a.slot}" clip.polygon`);
-      if (!Number.isInteger(a.offset) || !Number.isInteger(a.count) || a.offset < 0 || a.count < 0 || a.offset + a.count > frame.vertices.length ||
-          !Number.isInteger(a.slotIndex) || a.slotIndex < 0 || a.slotIndex * 4 + 4 > frame.tint.length) {
+      numbers(a.uvs, 'uvs', a.slot); numbers(a.triangles, 'triangles', a.slot);
+      if (a.dark !== null) numbers(a.dark, 'dark', a.slot);
+      if (a.clip !== null) numbers(a.clip.polygon, 'clip.polygon', a.slot);
+      if (a.offset + a.count > vertices.length || a.slotIndex * 4 + 4 > tint.length) {
         throw new Error(`PixiRenderer: live slot "${a.slot}" has invalid vertex span ${a.offset}+${a.count} or tint slotIndex=${a.slotIndex}`);
       }
       let row = this.rows[i];
@@ -69,8 +99,8 @@ export class LiveDrawViews {
         row = { slot, points, tint };
         this.rows[i] = row;
       }
-      row.points.source = frame.vertices; row.points.offset = a.offset;
-      row.tint.source = frame.tint; row.tint.offset = a.slotIndex * 4;
+      row.points.source = vertices; row.points.offset = a.offset;
+      row.tint.source = tint; row.tint.offset = a.slotIndex * 4;
       const slot = row.slot;
       slot.slot = a.slot; slot.blend = a.blend; slot.page = a.page ?? ''; slot.pma = a.pma;
       slot.uvs = a.uvs; slot.dark = a.dark ?? undefined; slot.clip = a.clip ?? undefined;
@@ -78,7 +108,7 @@ export class LiveDrawViews {
       else slot.triangles = a.triangles;
       this.order[i] = slot;
     }
-    this.order.length = frame.count;
+    this.order.length = count;
     return this.order;
   }
 
@@ -95,22 +125,50 @@ function identity(a: LiveAttachment): string {
   return JSON.stringify([a.slotIndex, a.slot, a.skin, a.placeholder, a.attachment, a.kind, a.page, a.region]);
 }
 
-interface SavedRow { template: PosedSlot; vertices: Float64Array; tint: Float64Array }
+interface SavedRow {
+  template: PosedSlot; offset: number; count: number; tintOffset: number;
+  dark?: number[]; clip?: PosedClip;
+}
+
+/** Only actual typed arrays take the native-copy path; checked proxies stay indexed. */
+function copyNumbers(target: Float64Array, source: LiveNumbers): void {
+  if (ArrayBuffer.isView(source) && source instanceof Float64Array) {
+    target.set(source);
+  } else {
+    for (let i = 0; i < target.length; i++) target[i] = source[i];
+  }
+}
+
+function savedNumbers(source: Float64Array, offset: number, count: number): number[] {
+  const result = new Array<number>(count);
+  for (let i = 0; i < count; i++) result[i] = source[offset + i];
+  return result;
+}
 
 /** Exact last-drawn values, independent of later direct RigPlayer mutations. */
 export class RetainedRuntimeFrame {
   private readonly templates = new WeakMap<LiveAttachment, PosedSlot>();
+  private readonly immutable = new WeakSet<LiveAttachment>();
   private readonly checkedTemplates = new Map<string, PosedSlot>();
   private readonly rows: SavedRow[] = [];
+  private vertices = new Float64Array(0);
+  private tint = new Float64Array(0);
   private count = 0;
   private generation = 0;
   private retained: PosedFrame | null = null;
 
   capture(frame: LiveFrame, seed: () => PosedFrame): void {
     let snapshot: PosedFrame | null = null;
-    for (let i = 0; i < frame.count; i++) {
-      const a = frame.attachments[frame.drawOrder[i]];
-      let template = this.templates.get(a);
+    const { count, attachments, drawOrder, vertices, tint } = frame;
+    // One owned copy per buffer avoids transient views for every drawn row.
+    // No borrowed lease reference survives capture, including checked buffers.
+    if (this.vertices.length !== vertices.length) this.vertices = new Float64Array(vertices.length);
+    if (this.tint.length !== tint.length) this.tint = new Float64Array(tint.length);
+    copyNumbers(this.vertices, vertices);
+    copyNumbers(this.tint, tint);
+    for (let i = 0; i < count; i++) {
+      const a = attachments[drawOrder[i]];
+      let template = this.immutable.has(a) ? this.templates.get(a) : undefined;
       if (!template) {
         // Production metadata is stable: the WeakMap hit above allocates no
         // keys. Checked leases wrap metadata anew, so use a bounded slow path.
@@ -126,16 +184,21 @@ export class RetainedRuntimeFrame {
           if (this.checkedTemplates.size >= Math.max(64, frame.attachments.length * 2)) this.checkedTemplates.clear();
           this.checkedTemplates.set(key, template);
         }
-        this.templates.set(a, template);
+        if (frozenData(a)) { this.immutable.add(a); this.templates.set(a, template); }
       }
       let row = this.rows[i];
-      if (!row || row.vertices.length !== a.count) {
-        row = { template, vertices: new Float64Array(a.count), tint: new Float64Array(4) };
+      if (!row) {
+        row = { template, offset: a.offset, count: a.count, tintOffset: a.slotIndex * 4 };
         this.rows[i] = row;
       }
       row.template = template;
-      for (let j = 0; j < a.count; j++) row.vertices[j] = frame.vertices[a.offset + j];
-      for (let j = 0; j < 4; j++) row.tint[j] = frame.tint[a.slotIndex * 4 + j];
+      row.offset = a.offset; row.count = a.count; row.tintOffset = a.slotIndex * 4;
+      // These can change independently of attachment identity. Detach at draw,
+      // before a checked lease expires or the caller changes a nested buffer.
+      row.dark = a.dark === null ? undefined : Array.from(a.dark);
+      row.clip = a.clip === null ? undefined : {
+        polygon: Array.from(a.clip.polygon), inverse: a.clip.inverse, convex: a.clip.convex,
+      };
     }
     this.count = frame.count;
     this.generation = frame.generation;
@@ -146,11 +209,13 @@ export class RetainedRuntimeFrame {
     if (this.retained) return this.retained;
     const order: PosedSlot[] = [];
     for (let i = 0; i < this.count; i++) {
-      const { template, vertices, tint } = this.rows[i];
-      const common = { ...template, tint: [tint[0], tint[1], tint[2], tint[3]] as [number, number, number, number] };
+      const { template, offset, count, tintOffset, dark, clip } = this.rows[i];
+      const common = { ...template, tint: savedNumbers(this.tint, tintOffset, 4) as [number, number, number, number] };
+      if (dark) common.dark = dark as [number, number, number]; else delete common.dark;
+      if (clip) common.clip = clip; else delete common.clip;
       order.push(template.kind === 'region'
-        ? { ...common, kind: 'region', region: template.region, corners: Array.from(vertices) }
-        : { ...common, kind: 'mesh', vertices: Array.from(vertices), triangles: template.triangles, sequence: template.sequence });
+        ? { ...common, kind: 'region', region: template.region, corners: savedNumbers(this.vertices, offset, count) }
+        : { ...common, kind: 'mesh', vertices: savedNumbers(this.vertices, offset, count), triangles: template.triangles, sequence: template.sequence });
     }
     this.retained = { order };
     Object.defineProperty(this.retained, 'generation', { value: this.generation, enumerable: false, configurable: true });
