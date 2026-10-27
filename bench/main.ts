@@ -420,7 +420,6 @@ async function loadRigPlayModel(
 ): Promise<ModelAssets> {
   const suffix = cacheBust ? `?cb=${encodeURIComponent(cacheBust)}` : '';
   const modelUrl = `${baseUrl}/${skeleton}/skeleton.model.json${suffix}`;
-  await requireFetchText(skeleton, modelUrl, cacheBust ? 'no-store' : 'default');
   const loader = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().loadModel : (primaryBundleModule?.loadModel ?? loadModel);
   try {
     return await loader({
