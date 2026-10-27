@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/rig-c/adapters/compare/pixi-v0.1.2...pixi-v0.1.3) (2026-10-27)
+
+
+### Performance Improvements
+
+* **pixi:** consume the player's live-frame lease instead of posedFrame() snapshots ([#69](https://github.com/rig-c/adapters/issues/69)) ([6e700a2](https://github.com/rig-c/adapters/commit/6e700a2e37f812eafd9aaf4efe3d1c4ef9e23fd3))
+
 ## [0.1.2](https://github.com/rig-c/adapters/compare/pixi-v0.1.1...pixi-v0.1.2) (2026-10-26)
 
 
