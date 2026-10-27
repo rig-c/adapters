@@ -1388,6 +1388,7 @@ export class PixiRig extends Container {
   private tickerAttached = false;
   private lastDrawnFrame: PosedFrame | null = null;
   private readonly retainedRuntimeFrame = new RetainedRuntimeFrame();
+  private readonly snapshotSeed = (): PosedFrame => this.player.posedFrame();
   private rigDestroyed = false;
 
   constructor(assets: ModelAssets, options: PixiRigOptions = {}) {
@@ -1557,7 +1558,7 @@ export class PixiRig extends Container {
       return;
     }
     this.renderer.render(frame);
-    this.retainedRuntimeFrame.capture(frame, () => this.player.posedFrame());
+    this.retainedRuntimeFrame.capture(frame, this.snapshotSeed);
     this.lastDrawnFrame = null;
   }
 

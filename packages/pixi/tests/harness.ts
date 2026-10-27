@@ -1845,6 +1845,7 @@ const harness = {
   tupleValidationProbe,
   liveMeshCopyProbe,
   slotCounterProbe,
+  snapshotSeedProbe,
   oracleRetentionProbe,
   liveLeaseProbe,
   livePictureProbe,
@@ -2173,4 +2174,27 @@ async function slotCounterProbe(plant: 'none' | 'rebuild' | 'carry' = 'none') {
       root.children[0].position.x === a.corners[2] && root.children[1].position.x === b.corners[2];
     return { steadySets, recordsReused, poolStable, positionsMatch, rolloverCorrect };
   } finally { renderer.dispose(); root.destroy({ children: true }); player.dispose(); }
+}
+
+
+async function snapshotSeedProbe(plant = false) {
+  const assets = await loadModel({ modelUrl: '/bench/raptor/skeleton.model.json', regions: 'none', setsUrl: null });
+  const rig = new PixiRig(assets, { ticker: null, autoUpdate: false, liveFrameChecks: false });
+  try {
+    const seeds: Array<(() => PosedFrame) | undefined> = [];
+    const holder = (rig as unknown as { retainedRuntimeFrame: { capture(frame: LiveFrame, seed?: () => PosedFrame): void } }).retainedRuntimeFrame;
+    const capture = holder.capture;
+    holder.capture = function(frame: LiveFrame, seed?: () => PosedFrame): void {
+      const forwarded = plant && seed ? () => seed() : seed;
+      seeds.push(forwarded); capture.call(this, frame, forwarded);
+    };
+    rig.play('walk', { loop: true });
+    let currentSeed = true;
+    for (let frame = 0; frame < 3; frame++) {
+      rig.player.advance(1 / 60); rig.renderFrame(rig.player.liveFrame());
+      const seed = seeds[seeds.length - 1];
+      currentSeed &&= Boolean(seed) && JSON.stringify(seed!()) === JSON.stringify(rig.player.posedFrame());
+    }
+    return { currentSeed, seedStable: seeds.length >= 3 && seeds.every(seed => seed === seeds[0]) };
+  } finally { rig.destroy(); }
 }

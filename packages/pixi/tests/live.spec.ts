@@ -183,3 +183,14 @@ test('Issue #88 slot counters reuse storage and reset occurrences across draws a
   const carry = await page.evaluate(() => window.rigAdaptersHarness.slotCounterProbe('carry'));
   expect(carry.poolStable).toBe(false);
 });
+
+
+test('Issue #88 current snapshot seed reuses callback storage', async ({ page }) => {
+  await page.goto('/packages/pixi/tests/harness.html');
+  await page.waitForFunction(() => Boolean(window.rigAdaptersHarness));
+  const normal = await page.evaluate(() => window.rigAdaptersHarness.snapshotSeedProbe());
+  console.log(JSON.stringify({ snapshotSeed: normal }));
+  expect(normal.seedStable).toBe(true); expect(normal.currentSeed).toBe(true);
+  const planted = await page.evaluate(() => window.rigAdaptersHarness.snapshotSeedProbe(true));
+  expect(planted.seedStable).toBe(false); expect(planted.currentSeed).toBe(true);
+});
