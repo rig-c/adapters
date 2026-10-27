@@ -32,7 +32,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
-    { name: 'webkit', use: { browserName: 'webkit' } },
+    { name: 'webkit', workers: 1, use: { browserName: 'webkit' } },
   ],
   webServer: {
     command: `bun run build && bunx vite preview --port ${port} --strictPort`,
