@@ -630,3 +630,42 @@ test('same-frame equal-count shared workload correctness at 10/50/100 instances'
     expect(row.drawCallsPass).toBe(true);
   }
 });
+
+test('isolated pairs finish each original-viewport arm; missing completion is detected', async ({ browser }) => {
+  for (const mutant of [false,true]) {
+    const page=await browser.newPage();
+    try {
+      if(mutant) await page.route('**/bench/main.ts',async route=>{
+        const response=await route.fetch();const code=await response.text();
+        const needle='        renderer.gl.finish();';
+        expect(code.split(needle).length).toBe(2);
+        await route.fulfill({response,body:code.replace(needle,'        /* completion defect control */')});
+      });
+      await page.addInitScript(()=>{
+        window.__isolatedEvents=[];
+        const now=performance.now.bind(performance);
+        Object.defineProperty(performance,'now',{configurable:true,value(){
+          if(/\brunIsolatedCompletionPair\b/.test(new Error().stack?.split('\n')[2]??'')) window.__isolatedEvents.push('now');
+          return now();
+        }});
+        for(const proto of [WebGLRenderingContext.prototype,WebGL2RenderingContext.prototype]) {
+          const finish=proto.finish;
+          proto.finish=function(){window.__isolatedEvents.push('finish');return finish.call(this);};
+        }
+      });
+      await page.goto('/bench/index.html');await page.waitForFunction(()=>Boolean(window.__rigBench));
+      const {result,events}=await page.evaluate(async()=>{
+        const result=await window.__rigBench.runIsolatedCompletionPair('raptor',['spine-pixi-v8','rig-c-pixi'],1,0,2);
+        return {result,events:window.__isolatedEvents};
+      });
+      expect(result.viewport).toEqual({width:900,height:640});
+      expect(result.frames.map(f=>f.order)).toEqual([['spine-pixi-v8','rig-c-pixi'],['rig-c-pixi','spine-pixi-v8']]);
+      const clocks=events.flatMap((e,i)=>e==='now'?[i]:[]);expect(clocks).toHaveLength(16);
+      for(let i=0;i<clocks.length;i+=4) {
+        const finishes=events.slice(clocks[i+2]+1,clocks[i+3]).filter(e=>e==='finish');
+        expect(finishes.length).toBe(mutant?0:1);
+      }
+      expect(result.frames.every(f=>f.arms.every(a=>a.completedFrameMs>=a.poseMs+a.submitMs-.000001))).toBe(true);
+    } finally {await page.close();}
+  }
+});

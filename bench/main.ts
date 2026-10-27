@@ -347,6 +347,7 @@ interface CompareBundleModule {
 
 let compareBundleModule: CompareBundleModule | null = null;
 let compareAsPrimary = false;
+let primaryBundleModule: CompareBundleModule | null = null;
 
 export function useCompareAsPrimary(enabled: boolean): void { compareAsPrimary = enabled; }
 const cachedOfficialAssets = new Map<BenchSkeleton, LoadedSpineOfficial>();
@@ -402,6 +403,15 @@ export async function registerCompareBundle(
   return { ok: true, label };
 }
 
+/** Register an independent primary adapter without replacing the comparison arm. */
+export async function registerPrimaryBundle(source: { moduleCode: string; label: string }): Promise<void> {
+  const saved = compareBundleModule;
+  await registerCompareBundle(source);
+  primaryBundleModule = compareBundleModule;
+  compareBundleModule = saved;
+  cachedRigPlayAssets.clear();
+}
+
 async function loadRigPlayModel(
   skeleton: BenchSkeleton,
   baseUrl = '/bench',
@@ -411,7 +421,7 @@ async function loadRigPlayModel(
   const suffix = cacheBust ? `?cb=${encodeURIComponent(cacheBust)}` : '';
   const modelUrl = `${baseUrl}/${skeleton}/skeleton.model.json${suffix}`;
   await requireFetchText(skeleton, modelUrl, cacheBust ? 'no-store' : 'default');
-  const loader = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().loadModel : loadModel;
+  const loader = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().loadModel : (primaryBundleModule?.loadModel ?? loadModel);
   try {
     return await loader({
       modelUrl, regions: 'none',
@@ -486,7 +496,7 @@ function createRigInstance(
   useSeek = true,
   arm: 'rig-c-pixi' | 'rig-c-pixi-compare' = 'rig-c-pixi',
 ): PixiRig {
-  const RigCtor = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().PixiRig : PixiRig;
+  const RigCtor = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().PixiRig : (primaryBundleModule?.PixiRig ?? PixiRig);
   const rig = new RigCtor(assets, { ticker: null, autoUpdate: false, liveFrameChecks: false });
   rig.position.set(x, y);
   rig.scale.set(scale);
@@ -773,6 +783,7 @@ export async function measureLoadToFirstFrame(
 }
 
 interface PreparedStage {
+  acquisitionPath?: 'snapshot' | 'live';
   skeleton: BenchSkeleton;
   arm: BenchArm;
   instances: number;
@@ -926,7 +937,8 @@ export async function prepareBenchmarkStage(
   const rigs: PixiRig[] = [];
   const posedFrames: PosedFrame[] = new Array<PosedFrame>(grid.length);
   const liveFrames: LiveFrame[] = new Array<LiveFrame>(grid.length);
-  const snapshotOnly = options.snapshotOnly || arm === 'rig-c-pixi-compare' || compareAsPrimary;
+  const StageRig = arm === 'rig-c-pixi-compare' || compareAsPrimary ? requireCompareBundle().PixiRig : (primaryBundleModule?.PixiRig ?? PixiRig);
+  const snapshotOnly = options.snapshotOnly || typeof StageRig.prototype.renderFrame !== 'function';
   for (let i = 0; i < grid.length; i++) {
     const slot = grid[i];
     const rig = createRigInstance(
@@ -997,6 +1009,7 @@ export async function prepareBenchmarkStage(
     stage,
     resetPhase,
     poseAll,
+    acquisitionPath: snapshotOnly ? 'snapshot' : 'live',
     splitPose: (stepDt) => splitPose(rigs, posedFrames, stepDt, () => performance.now()),
     poserCounts: () => {
       const counts: Record<string, number> = {};
@@ -1525,6 +1538,7 @@ export async function runSameFramePair(
     return {
       mode: 'same-frame-ab-v1', skeleton, instances, arms, warmupFrames: warmup, measuredFrames: count,
       poserCounts: prepared.map(stage => stage.poserCounts?.() ?? null),
+      acquisitionPaths: prepared.map(stage => stage.acquisitionPath ?? 'official'),
       gpuStatus, gpuSamplesMs: gpuSamples, halves, frames: rows,
       cpuPairedDifference: summary(deltas),
       gpuPairedDifference: gpuStatus === 'available' ? summary(gpuSamples.map(s => s[1]! - s[0]!)) : null,
@@ -1537,6 +1551,54 @@ export async function runSameFramePair(
     await disposePreparedStage();
     renderer.resize(CANVAS_WIDTH, CANVAS_HEIGHT);
   }
+}
+
+/** Paired isolated frames: original viewport, one completion boundary per arm. */
+export async function runIsolatedCompletionPair(
+  skeleton: BenchSkeleton, arms: [BenchArm, BenchArm], instances: number,
+  warmupFrames = 60, measuredFrames = 180,
+) {
+  if (arms[0] === arms[1] || !Number.isInteger(instances) || instances < 1 ||
+      !Number.isInteger(warmupFrames) || warmupFrames < 0 || !Number.isInteger(measuredFrames) || measuredFrames < 1) {
+    throw new Error('BENCH_ISOLATED: distinct arms and positive integral workload required');
+  }
+  await disposePreparedStage();
+  const { renderer, counters } = await getRenderer();
+  renderer.resize(CANVAS_WIDTH, CANVAS_HEIGHT);
+  const stages: PreparedStage[] = [];
+  const frames: Array<{ frame: number; order: BenchArm[]; arms: Array<{
+    arm: BenchArm; poseMs: number; submitMs: number; completionDrawMs: number; completedFrameMs: number; drawCalls: number;
+  }> }> = [];
+  try {
+    for (const arm of arms) {
+      await prepareBenchmarkStage(skeleton, arm, instances, 0, '/bench', { keepPrepared: true });
+      stages.push(preparedStages.get(arm)!);
+    }
+    for (const stage of stages) stage.resetPhase();
+    for (let f = -warmupFrames; f < measuredFrames; f++) {
+      const order = f % 2 === 0 ? [0, 1] : [1, 0];
+      if (f === 0) renderer.gl.finish();
+      const samples = new Array<{ arm: BenchArm; poseMs: number; submitMs: number; completionDrawMs: number; completedFrameMs: number; drawCalls: number }>(2);
+      for (const index of order) {
+        counters.reset();
+        const t0 = performance.now();
+        stages[index].poseAll(1 / 60);
+        const t1 = performance.now();
+        stages[index].drawAll();
+        const submitted = performance.now();
+        renderer.gl.finish();
+        const end = performance.now();
+        samples[index] = { arm: arms[index], poseMs: t1-t0, submitMs: submitted-t1,
+          completionDrawMs: end-t1, completedFrameMs: end-t0, drawCalls: counters.drawCalls };
+      }
+      if (f >= 0) frames.push({frame:f,order:order.map(i=>arms[i]),arms:samples});
+    }
+    if (!frames.every(row=>row.arms.every(a=>a.drawCalls>0 && a.drawCalls<=(skeleton==='spineboy'?1:3)))) {
+      throw new Error('BENCH_ISOLATED_DRAW_CALLS: unchanged caps exceeded');
+    }
+    return { timingProtocol: 'gpu-complete-v2', mode: 'isolated-matched-frames-v1', skeleton, instances,
+      warmupFrames, measuredFrames, viewport: {width:CANVAS_WIDTH,height:CANVAS_HEIGHT}, frames };
+  } finally { await disposePreparedStage(); }
 }
 
 export async function disposePreparedStage(): Promise<void> {
@@ -1556,6 +1618,8 @@ export async function disposePreparedStage(): Promise<void> {
 }
 
 export interface RigBenchHarness {
+  registerPrimaryBundle: typeof registerPrimaryBundle;
+  runIsolatedCompletionPair: typeof runIsolatedCompletionPair;
   useVerifiedFixtures: typeof useVerifiedFixtures;
   runSameFramePair: typeof runSameFramePair;
   getGpuInfo: typeof getGpuInfo;
@@ -1581,6 +1645,8 @@ declare global {
 }
 
 window.__rigBench = {
+  registerPrimaryBundle,
+  runIsolatedCompletionPair,
   useVerifiedFixtures,
   runSameFramePair,
   getGpuInfo,
