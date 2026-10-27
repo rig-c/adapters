@@ -36,6 +36,14 @@ jobs:
         run: bun scripts/check-playwright-image.mjs
       - run: bun run check:release
       - run: bun run smoke
+      - name: Prepare immutable Pixi origin baseline
+        run: |
+          bun scripts/prepare-pixi-baseline.mjs \
+            --commit 78e696b41fc07552a4861dde84cd8c85148cb8c4 \
+            --pixi-sha256 82305b7cb154571c2f25d8b5dd4a57e4262c535abb57046080703ac7a299834e \
+            --index-sha256 f4a3f5d572a60c877eb0a9b7400b9066fc74819e2ea48b9e674118662181f945 \
+            --out "$RUNNER_TEMP/pixi-origin-baseline"
+          echo "PIXI_BASELINE_BUNDLE=$RUNNER_TEMP/pixi-origin-baseline/origin-browser.mjs" >> "$GITHUB_ENV"
       - run: bun run test
       - run: bun run test:bench
       - run: bun run bench -- --smoke --json

@@ -79,11 +79,37 @@ test.describe('Issue #66 live-frame contract', () => {
     }
   });
 
-  test('immutable origin adapter and live adapter pictures have zero differing bytes', async ({ page }) => {
-    test.skip(!process.env.PIXI_BASELINE_BUNDLE, 'SKIP: immutable origin baseline bundle was not supplied');
-    const originCode = readFileSync(process.env.PIXI_BASELINE_BUNDLE!, 'utf8');
+  test('immutable origin adapter and live adapter pictures have zero differing bytes', async ({ page }, testInfo) => {
+    let originCode: string | undefined;
+    const bundle = process.env.PIXI_BASELINE_BUNDLE;
+    if (bundle !== undefined) {
+      try {
+        originCode = readFileSync(bundle, 'utf8');
+      } catch {
+        const message = 'HOLE: PIXI_ORIGIN_BASELINE_UNREADABLE: cannot read the supplied baseline bundle';
+        console.log(message);
+        throw new Error(message);
+      }
+    }
+    if (originCode === undefined) {
+      const message = `${process.env.CI ? 'HOLE' : 'SKIP'}: PIXI_ORIGIN_BASELINE_MISSING: supply PIXI_BASELINE_BUNDLE from prepare-pixi-baseline.mjs`;
+      console.log(message);
+      if (process.env.CI) throw new Error(message);
+      test.skip(true, message);
+      return;
+    }
+    if (originCode.trim().length === 0) {
+      const message = 'HOLE: PIXI_ORIGIN_BASELINE_EMPTY: supplied baseline bundle is empty';
+      console.log(message);
+      throw new Error(message);
+    }
     for (const options of pictures) {
       const result = await page.evaluate(options => window.rigAdaptersHarness.livePictureProbe(options), { ...options, originCode });
+      console.log(JSON.stringify({
+        gate: 'PIXI_ORIGIN_BYTE_IDENTITY', browser: testInfo.project.name,
+        rig: options.rigName, animation: options.animation ?? null, time: options.time, pma: options.pma ?? false,
+        originBaseline: result.originBaseline, contentPixels: result.contentPixels, byteDifferences: result.byteDifferences,
+      }));
       expect(result.originBaseline).toBe(true);
       expect(result.contentPixels).toBeGreaterThan(0);
       expect(result.byteDifferences).toBe(0);
