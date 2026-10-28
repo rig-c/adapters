@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/rig-c/adapters/compare/pixi-v0.1.5...pixi-v0.1.6) (2026-10-28)
+
+
+### Performance Improvements
+
+* **shared:** skip re-translating a frozen attachment's draw-view metadata when its identity is unchanged ([#97](https://github.com/rig-c/adapters/issues/97)) ([9ca5d38](https://github.com/rig-c/adapters/commit/9ca5d3820140ce2b36ac4304f968212f122695af)), closes [#96](https://github.com/rig-c/adapters/issues/96)
+
 ## [0.1.5](https://github.com/rig-c/adapters/compare/pixi-v0.1.4...pixi-v0.1.5) (2026-10-27)
 
 

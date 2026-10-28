@@ -1,6 +1,6 @@
 {
   "name": "@rig-c/pixi",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Play rig-c model documents in PixiJS through @rig-c/play.",
   "type": "module",
   "license": "MIT",
