@@ -220,3 +220,50 @@ test('retained dark/clip storage is reused across captures, resizing and absent 
   const fresh = Array.from(row.dark);
   expect(fresh === dark).toBe(false);
 });
+
+
+test('immutable metadata changes at the same draw index update all primitive fields and spans', () => {
+  const { frame } = fixture();
+  const views = new LiveDrawViews();
+  const first = Object.freeze(frame.attachments[0]);
+  const second = Object.freeze({ ...first, slot: 'other', page: 'other-page', blend: 'Multiply',
+    pma: false, offset: 2, slotIndex: 1 });
+  frame.vertices = new Float64Array([1, 2, 3, 4, 5, 6, 7, 8]);
+  frame.tint = new Float64Array([1, 1, 1, 1, .2, .3, .4, .5]);
+  for (const a of [first, first, second, second, first]) {
+    frame.attachments = [a];
+    const slot = views.read(frame)[0];
+    expect([slot.slot, slot.page, slot.blend, slot.pma]).toEqual([a.slot, a.page, a.blend, a.pma]);
+    expect(numberOffset(slot.vertices)).toBe(a.offset);
+    expect(numberOffset(slot.tint)).toBe(a.slotIndex * 4);
+    views.release();
+    expect(numberCount(numberSource(slot.vertices))).toBe(0);
+    expect(numberCount(numberSource(slot.tint))).toBe(0);
+    expect(slot.uvs.length).toBe(0);
+    expect(slot.triangles.length).toBe(0);
+  }
+});
+
+test('frozen primitive identity does not cache accessor buffers or mutable draw fields', () => {
+  const { frame } = fixture();
+  const views = new LiveDrawViews();
+  let uvs = frame.attachments[0].uvs;
+  const a = { ...frame.attachments[0] };
+  Object.defineProperty(a, 'uvs', { enumerable: true, get: () => uvs });
+  frame.attachments = [Object.freeze(a)];
+  views.read(frame); views.release();
+  uvs = new Float64Array([.1, .2, .3, .4, .5, .6]);
+  expect(views.read(frame)[0].uvs).toBe(uvs); views.release();
+  uvs = { length: -1 };
+  expect(() => views.read(frame)).toThrow('uvs needs an indexed buffer');
+  const mutable = { ...fixture().frame.attachments[0] };
+  frame.attachments = [mutable];
+  for (const slotName of ['mesh', 'changed', 'changed-again']) {
+    mutable.slot = slotName; mutable.offset = slotName === 'mesh' ? 0 : 1;
+    frame.vertices = new Float64Array(7);
+    const slot = views.read(frame)[0];
+    expect(slot.slot).toBe(slotName);
+    expect(numberOffset(slot.vertices)).toBe(mutable.offset);
+    views.release();
+  }
+});

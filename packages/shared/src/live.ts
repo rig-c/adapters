@@ -68,13 +68,16 @@ export function numberSource(value: DrawNumbers): LiveNumbers { return value ins
 export function numberOffset(value: DrawNumbers): number { return value instanceof NumberSpan ? value.offset : 0; }
 export function numberCount(value: DrawNumbers): number { return value instanceof NumberSpan ? value.count : (value ? value.length : -1); }
 
-interface Row { slot: DrawSlot; points: NumberSpan; tint: NumberSpan }
+interface Row { slot: DrawSlot; points: NumberSpan; tint: NumberSpan; identity: number }
 
 /** Pooled draw views. All lease references are dropped at the end of render(). */
 export class LiveDrawViews {
   readonly order: DrawSlot[] = [];
   private readonly rows: Row[] = [];
-  private readonly validated = new WeakSet<LiveAttachment>();
+  // Only a numeric token survives release: no borrowed attachment or buffer
+  // reference is retained to identify an immutable metadata row.
+  private readonly validated = new WeakMap<LiveAttachment, number>();
+  private nextIdentity = 1;
 
   constructor(private readonly owner = 'PixiRenderer') {}
 
@@ -93,7 +96,8 @@ export class LiveDrawViews {
         throw new Error(`${owner}: live drawOrder[${i}]=${index} needs a region or mesh attachment`);
       }
       const a = attachment;
-      if (!this.validated.has(a)) {
+      let identity = this.validated.get(a) ?? 0;
+      if (identity === 0) {
         if (typeof a.slot !== 'string' || a.slot.length === 0 || typeof a.page !== 'string' || a.page.length === 0 ||
             (a.kind === 'region' && (typeof a.region !== 'string' || a.region.length === 0))) {
           throw new Error(`${owner}: live slot "${a.slot}" needs named slot, page and region metadata`);
@@ -102,7 +106,10 @@ export class LiveDrawViews {
             !Number.isInteger(a.slotIndex) || a.slotIndex < 0) {
           throw new Error(`${owner}: live slot "${a.slot}" has invalid vertex span ${a.offset}+${a.count} or tint slotIndex=${a.slotIndex}`);
         }
-        if (frozenData(a)) this.validated.add(a);
+        if (frozenData(a)) {
+          identity = this.nextIdentity++;
+          this.validated.set(a, identity);
+        }
       }
       numbers(a.uvs, owner, 'uvs', a.slot); numbers(a.triangles, owner, 'triangles', a.slot);
       if (a.dark !== null) numbers(a.dark, owner, 'dark', a.slot);
@@ -118,16 +125,24 @@ export class LiveDrawViews {
         const slot: DrawSlot = a.kind === 'region'
           ? { ...common, kind: 'region', region: a.region ?? '', corners: points }
           : { ...common, kind: 'mesh', vertices: points, triangles: EMPTY };
-        row = { slot, points, tint };
+        row = { slot, points, tint, identity: 0 };
         this.rows[i] = row;
       }
-      row.points.source = vertices; row.points.offset = a.offset;
-      row.tint.source = tint; row.tint.offset = a.slotIndex * 4;
+      row.points.source = vertices;
+      row.tint.source = tint;
       const slot = row.slot;
-      slot.slot = a.slot; slot.blend = a.blend; slot.page = a.page ?? ''; slot.pma = a.pma;
+      // Frozen own primitive identity fields cannot change. Mutable metadata,
+      // inherited values and accessors always take the translation path.
+      if (identity === 0 || row.identity !== identity) {
+        row.points.offset = a.offset; row.tint.offset = a.slotIndex * 4;
+        slot.slot = a.slot; slot.blend = a.blend; slot.page = a.page ?? ''; slot.pma = a.pma;
+        if (slot.kind === 'region') slot.region = a.region ?? '';
+        row.identity = identity;
+      }
+      // Buffer references and nested dark/clip objects are never identity-cached.
+      // They are reread each draw and cleared by release even on the fast path.
       slot.uvs = a.uvs; slot.dark = a.dark ?? undefined; slot.clip = a.clip ?? undefined;
-      if (slot.kind === 'region') slot.region = a.region ?? '';
-      else slot.triangles = a.triangles;
+      if (slot.kind === 'mesh') slot.triangles = a.triangles;
       this.order[i] = slot;
     }
     this.order.length = count;
