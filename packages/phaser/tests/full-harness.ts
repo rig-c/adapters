@@ -63,11 +63,14 @@ export async function fullPicture(rig: string, animation: string, time: number, 
     assets = { ...assets, pageImages: pages };
   }
   const frame = pma ? { order: loaded.frame.order.map((slot) => ({ ...slot, pma: true })) } : loaded.frame;
+  // Boot the host before submitting oracle GL work, avoiding an asynchronous
+  // host-context initialization between oracle submission and host capture.
+  const { game, scene } = await gameFor();
   const box = bounds(frame), reference = new CanvasRenderer(document.createElement('div'), assets.pageImages);
   reference.pixelRatio = 1; reference.backend = 'webgl';
   reference.viewport = { x: box.left, y: box.bottom, width: box.width, height: box.height }; reference.render(frame);
   const referencePng = composite(reference.canvas), backend = reference.backendActive; reference.dispose();
-  const { game, scene } = await gameFor(); game.scale.resize(box.width, box.height);
+  game.scale.resize(box.width, box.height);
   const root = scene.add.container(-box.left, box.top), renderer = new PhaserRenderer(root, assets);
   try {
     renderer.render(mutated(frame, mutant)); game.step(0, 0);
