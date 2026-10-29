@@ -6,7 +6,8 @@ repository is public; so is everything written to it.
 ## What this is
 
 An adapter plays a rig that `rigc build` wrote inside a host renderer or engine,
-through `@rig-c/play`'s core, with no Spine runtime. The first host was **PixiJS**
+through `@rig-c/play`'s bundled `rig-c/runtime` and `rig-c/core` posers, with no
+Spine runtime. The first host was **PixiJS**
 (a renderer, the smallest surface to touch); Phaser and Three.js now have their own native renderers.
 Issues carry the work: each one states the decision, why, the bars it is held
 to, and what is out of scope. An issue is the whole brief — nothing agreed in a
@@ -14,14 +15,19 @@ conversation counts until it is written there.
 
 ## The oracle is `@rig-c/play`
 
-`@rig-c/play` poses the rig through `rig-c/core` and hands the renderer a plain
-record, `PosedFrame` — every slot that draws, in draw order, with world-space
-corners or mesh vertices (Y up), page UVs, tint, blend, and clip polygon. Its
-README (*Drawing your own frames*, *Reading the pose*) documents it, and its
-`DomRenderer` and `CanvasRenderer` are two renderers of that record. An adapter
-here is a third: it loads with `loadModel`, poses with `RigPlayer`, and draws
-`player.posedFrame()` through the host. So what an adapter has to prove is the
-**drawing**, not the pose:
+`@rig-c/play` poses the rig through `rig-c/runtime` for covered animations, with
+`rig-c/core` as the oracle and fallback. It hands the renderer a borrowed
+`LiveFrame` or a detached `PosedFrame` — every slot that draws, in draw order,
+with world-space corners or mesh vertices (Y up), page UVs, tint, blend, and clip
+polygon. Its [reference](https://github.com/rig-c/play/blob/main/docs/REFERENCE.md)
+(*Drawing your own frames*, *Borrowing a live frame*, *Reading the pose*)
+documents these frames; `DomRenderer` and `CanvasRenderer` are two renderers of
+them. An adapter here is a third: it loads with `loadModel` and poses with
+`RigPlayer`. During advance, it draws `player.liveFrame()` when
+`player.poser === 'runtime'`, or `player.posedFrame()` otherwise. Its constructor
+and explicit `draw()` calls render snapshots; `posedFrame()` also remains
+available for inspection. So what an adapter has to prove is the **drawing**,
+not the pose:
 
 - every slot it draws sits where the record says, in the record's order, with
   the record's tint, blend and clip — read back from the host's scene objects
