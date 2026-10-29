@@ -3,13 +3,13 @@
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
 
-**Status: PixiJS, Phaser and Three.js adapters 0.1.1 released on 2026-10-15; 0.x APIs.**
+**Status: PixiJS, Phaser and Three.js adapters released; 0.x APIs.**
 
 | Package | Status |
 | --- | --- |
-| `@rig-c/pixi` | [0.1.1 released](https://github.com/rig-c/adapters/releases/tag/pixi-v0.1.1), PixiJS 8 adapter; 0.x API |
-| `@rig-c/phaser` | [0.1.1 released](https://github.com/rig-c/adapters/releases/tag/phaser-v0.1.1), Phaser 4.2+ (`PhaserRig`, `PhaserRenderer`, shared page textures); 0.x API |
-| `@rig-c/three` | [0.1.1 released](https://github.com/rig-c/adapters/releases/tag/three-v0.1.1), native Three.js 0.186.1 renderer and live Group; 0.x API |
+| `@rig-c/pixi` | [Released on npm](https://www.npmjs.com/package/@rig-c/pixi), PixiJS 8 adapter; 0.x API |
+| `@rig-c/phaser` | [Released on npm](https://www.npmjs.com/package/@rig-c/phaser), Phaser 4.2+ (`PhaserRig`, `PhaserRenderer`, shared page textures); 0.x API |
+| `@rig-c/three` | [Released on npm](https://www.npmjs.com/package/@rig-c/three), native Three.js 0.186.1 renderer and live Group; 0.x API |
 | Native engine bridges | Planned |
 
 Each host is independently versioned in `packages/<host>`. The private shared
@@ -109,7 +109,7 @@ is already the source, and Spine is one export of it.
 
 ## Scope, in order
 
-1. **On the web first.** The adapter wraps @rig-c/play's core poser and draws through
+1. **On the web first.** The adapter wraps @rig-c/play's poser and draws through
    the host's own renderer. These hosts are not all engines, and that matters for
    what an adapter must bring:
    - **Phaser**: a 2D game engine (scenes, input, physics, audio, loader).
