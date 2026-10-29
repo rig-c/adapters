@@ -1,4 +1,4 @@
-import type { CompiledDocument } from 'rig-c/core';
+import { poseRawAnimation, type CompiledDocument } from 'rig-c/core';
 import type { ModelAssets, RigPlayer } from '@rig-c/play';
 import { PointerDials, PointerDialRefusal, readPointerDialBindings, type DialBoneNames, type PointerDialBindings } from './pointer-dials.ts';
 export { pointerToNormalized, stepCriticallyDampedSpring2D, HEAD_SPRING_OMEGA0 } from './pointer-dials.ts';
@@ -22,6 +22,9 @@ export const LOOK_DIAL_BONES = { yaw: 'yaw_dial', pitch: 'pitch_dial', roll: 'ro
 /** Interim calibrated whole-rig input; replace with head-local physics input when supported. */
 export const INTERIM_GLOBAL_PHYSICS_GAIN = 0.25;
 
+/** The page keeps its original body excursion inside the producer's wider dial. */
+export const LOOK_BODY_LIMIT_DEG = 6;
+
 export interface LookBandMap {
   readonly yaw: readonly [number, number];
   readonly pitch: readonly [number, number];
@@ -38,7 +41,7 @@ export interface LookDials {
   readonly P: number;
   /** Declared head roll amplitude in degrees (`head roll = fx * fy * (-R)`). */
   readonly R: number;
-  /** Declared body yaw amplitude in degrees (`body yaw = fx * B`). */
+  /** Page body yaw amplitude in degrees (`body yaw = fx * B`). */
   readonly B: number;
   /** Declared eye horizontal dial amplitude. */
   readonly eyeXRange: number;
@@ -100,22 +103,17 @@ function detectSliderDirectionSign(
   if (!animationName) return 1;
   const anim = doc.animations.find((a) => a.name === animationName);
   if (!anim) return 1;
-  const probeBone =
-    anim.timelines.bones.find((b) => b.name === 'nose') ??
-    anim.timelines.bones.find((b) => b.name === 'eye_r') ??
-    anim.timelines.bones[0];
-  if (!probeBone) return 1;
-  const tl = probeBone.timelines.find((t) => t.kind === channel);
-  if (!tl || tl.keys.length < 2) return 1;
-  const firstKey = tl.keys[0] as
-    | { readonly values?: readonly number[]; readonly value?: number }
-    | undefined;
-  const lastKey = tl.keys[tl.keys.length - 1] as
-    | { readonly values?: readonly number[]; readonly value?: number }
-    | undefined;
-  const first = firstKey?.values?.[0] ?? firstKey?.value ?? 0;
-  const last = lastKey?.values?.[0] ?? lastKey?.value ?? 0;
-  return last < first ? -1 : 1;
+  const probeName = doc.bones.some(b => b.name === 'nose') ? 'nose' :
+    doc.bones.some(b => b.name === 'eye_r') ? 'eye_r' : doc.bones[0]?.name;
+  if (!probeName) return 1;
+  // A depth unit may have a stationary local track while faceshift moves it.
+  // Pose both endpoints through the public core so parent frames count too.
+  const poses = poseRawAnimation(doc, anim.name, [anim.timelines.duration]);
+  const first = poses[0]?.bones.find(b => b.name === probeName);
+  const last = poses[poses.length - 1]?.bones.find(b => b.name === probeName);
+  if (!first || !last) return 1;
+  const delta = channel === 'translatex' ? last.worldX - first.worldX : last.worldY - first.worldY;
+  return delta < 0 ? -1 : 1;
 }
 
 function findHeadDescendantPhysicsBones(doc: CompiledDocument): string[] {
@@ -162,9 +160,17 @@ export function readLookDials(doc: CompiledDocument, names: Required<DialBoneNam
   const modelThresholds: LookBandMap = {
     yaw: band('yaw'), pitch: band('pitch'), roll: band('roll'), body: band('body'), gazeX: band('gazeX'), gazeY: band('gazeY'),
   };
+  const bodyBand: readonly [number, number] = [Math.max(modelThresholds.body[0], -LOOK_BODY_LIMIT_DEG), Math.min(modelThresholds.body[1], LOOK_BODY_LIMIT_DEG)];
+  if (bodyBand[0] > bodyBand[1]) {
+    const message = `[examples/look] Body dial bone "${bindings.body!.bone}" has range ${JSON.stringify(modelThresholds.body)}, expected overlap with [-${LOOK_BODY_LIMIT_DEG}, ${LOOK_BODY_LIMIT_DEG}]; rendering static pose.`;
+    console.warn(message);
+    return { ok: false, missingAxis: 'body', message };
+  }
+  const pageClamp: LookBandMap = { ...modelThresholds, body: bodyBand };
+  const pageBindings: PointerDialBindings = { ...bindings, body: { ...bindings.body!, range: bodyBand } };
   const property = (axis: keyof PointerDialBindings): string => bindings[axis]!.channel === 'rotation' ? 'rotate' : bindings[axis]!.channel;
   return { ok: true, dials: {
-    Y: amplitude('yaw'), P: amplitude('pitch'), R: amplitude('roll'), B: amplitude('body'),
+    Y: amplitude('yaw'), P: amplitude('pitch'), R: amplitude('roll'), B: Math.max(...bodyBand.map(Math.abs)),
     eyeXRange: amplitude('gazeX'), eyeYRange: amplitude('gazeY'),
     yawSign: detectSliderDirectionSign(doc, animation('yaw'), 'translatex'),
     pitchSign: detectSliderDirectionSign(doc, animation('pitch'), 'translatey'),
@@ -174,7 +180,7 @@ export function readLookDials(doc: CompiledDocument, names: Required<DialBoneNam
     bodyBone: bindings.body!.bone, bodyProperty: property('body'),
     eyeXBone: bindings.gazeX!.bone, eyeXProperty: property('gazeX'),
     eyeYBone: bindings.gazeY!.bone, eyeYProperty: property('gazeY'),
-    bindings, hairPhysicsBones: findHeadDescendantPhysicsBones(doc), modelThresholds, pageClamp: modelThresholds,
+    bindings: pageBindings, hairPhysicsBones: findHeadDescendantPhysicsBones(doc), modelThresholds, pageClamp,
   } };
 }
 
@@ -304,7 +310,7 @@ export class LookController {
     this.currentEyeY = values.gazeY!;
     const rollFactor = hx * hy;
 
-    // 3. Interim calibrated global input: the shipped mesh turn has no moving hair roots.
+    // 3. Retain the separately calibrated global impulse; head-local physics is a separate change.
     // Keep this explicitly global until play or the producer supplies head-local motion.
     const dYaw = this.currentHeadYaw - prevYaw;
     const dPitch = this.currentHeadPitch - prevPitch;

@@ -63,7 +63,9 @@ zero. Each dial maps zero to zero clamped into its band, negative input toward
 its minimum and positive input toward its maximum. Thus `[-7, 23]` stays
 asymmetric; a sign reversal selects the opposite endpoint before mapping.
 `PointerDials` accepts optional `{ yaw: -1, pitch: 1 }` directions; the look page's
-existing animation-direction probe supplies these for its fixture.
+animation-direction probe poses the feature's world motion at both animation
+endpoints through the public core. This includes parent carriers when the local
+feature track is stationary.
 
 Head yaw/pitch and body use the exact analytical critically damped spring with
 omega 20 rad/s. From rest, the step error at 0.30 s is
@@ -71,8 +73,10 @@ omega 20 rad/s. From rest, the step error at 0.30 s is
 Roll keeps the existing `-hx * hy` mapping; eyes use the unsmoothed pointer.
 `clearPointer()` returns the target to neutral. Apply is a normal public
 `BoneAdjust` callback and writes only each slider's declared local channel.
-The example retains its calibrated global hair impulse; this helper does not
-introduce depth production or change animation posing.
+The example retains its calibrated global hair impulse. Its producer exposes a
+body dial of ±15°; the page maps that dial to its original ±6° excursion.
+`modelThresholds` reports the producer range and `pageClamp` reports this smaller
+page range. Yaw, pitch, roll and gaze keep their declared bands.
 
 ## Checks and input boundary
 
@@ -81,6 +85,23 @@ channel-write and exact spring controls without a browser. `bun run test -- exam
 and WebKit, including pointer input, pixels and moving pose checks. The normal
 repository `bun run verify` includes the helper tests.
 
-The committed public look fixture supplies these tests. Refreshing it against
-the first released public depth rig from parts issue #763 is **pending an actual
-released input**. Existing slider tests do not establish depth-rig acceptance.
+The committed look fixture is produced with parts 1.79.1, rig-c 2.81.1 and
+core 2.81.1 using sampled depth for face, hair and topwear. A full-run face and
+independent full-run neck avoid the head-crop garment overlap; rigid ears use
+explicit depths measured from their source sheets. Body motion uses the supported
+`turn.body.slider` name `body_dial`. Assembly keeps original neck/face samples
+under soft occluders and uses the supported `yield_refused` option to let the
+matching neck layer show through refused garment pixels and their rim.
+
+[`rig/producer.json`](rig/producer.json) records producer versions, config/input
+hashes and the hashes of the four unmodified emitted files. `bun scripts/check-look-payload.ts`
+checks byte identity and the actual depth carriers (`faceshift`, `face_surface`,
+`bodyshift`, `body_rear_shift`, `topwear_surface`) plus nonzero face/body deform
+tracks. The current producer uses these names rather than `turn*` bones.
+The payload tests plant missing carriers/deforms and changed digests.
+
+Source art and config are not distributed, so a public run cannot repeat the
+producer build; its byte check is not a public cold-rebuild claim. A private
+clean producer run records the emitted bytes; repeating that build requires the
+private inputs. The producer's geometry gates and
+browser controls do not replace visual acceptance of setup and motion extremes.

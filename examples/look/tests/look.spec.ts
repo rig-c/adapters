@@ -125,7 +125,7 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
       `[look:bar1:perf] ${testInfo.project.name} 1920x1080 (120 frames): ` +
         `p50=${perf.p50Ms.toFixed(2)}ms, p95=${perf.p95Ms.toFixed(2)}ms, mean=${perf.meanMs.toFixed(2)}ms, nonEmptyPixels=${stageInfo.nonEmptyPixels}`,
     );
-    // --- Bar 2 & Bar 3 & Bar 4: Reset to fresh 1.34.0 look rig for deterministic measurements ---
+    // --- Bar 2 & Bar 3 & Bar 4: Reset to the depth-produced look rig for deterministic measurements ---
     await page.evaluate(() => window.__lookDemo!.loadRig('/examples/look/rig/skeleton.model.json'));
     const dials = (await page.evaluate(() => window.__lookDemo!.dials))!;
     expect(dials.Y).toBe(15);
@@ -155,12 +155,12 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
         `modelThresholds=${JSON.stringify(dials.modelThresholds)} ` +
         `pageClamp=${JSON.stringify(dials.pageClamp)}`,
     );
-    expect(dials.pageClamp).toEqual(dials.modelThresholds);
+    expect(dials.pageClamp).toEqual({ ...dials.modelThresholds, body: [-6, 6] });
     expect(dials.modelThresholds).toEqual({
       yaw: [-15, 15],
       pitch: [-12, 12],
       roll: [-8, 8],
-      body: [-6, 6],
+      body: [-15, 15],
       gazeX: [-1, 1],
       gazeY: [-1, 1],
     });
@@ -336,7 +336,7 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
     expect(Math.abs(absentReport.settled.headPitch)).toBeLessThan(1e-6);
     expect(Math.abs(absentReport.settled.headRoll)).toBeLessThan(1e-6);
 
-    // Issue #37 Bar 1: Verify the new 1.34.0 look rig across all three adapters (@rig-c/pixi, @rig-c/phaser, @rig-c/three)
+    // Issue #37 Bar 1: Verify the depth-produced look rig across all three adapters (@rig-c/pixi, @rig-c/phaser, @rig-c/three)
     // and verify the camera stays fixed (orthographic, no camera track).
     const adapterReport = await page.evaluate(() => window.__lookDemo!.verifyThreeAdapters());
     console.log(
@@ -466,6 +466,8 @@ test.describe('Issue #34 — examples/look pointer-follow page on @rig-c/pixi', 
       'examples/look/pointer-dials.ts',
       'examples/look/README.md',
       'examples/look/tests/pointer-dials.test.ts',
+      'examples/look/tests/payload.test.ts',
+      'examples/look/rig/producer.json',
       'examples/look/look-corners.webp',
       'examples/look/look-corner-bl.png',
       'examples/look/look-corner-br.png',

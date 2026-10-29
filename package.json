@@ -27,7 +27,7 @@
     "bench": "bun scripts/bench.mjs",
     "test:bench": "playwright test --config bench/playwright.config.ts",
     "verify": "bun run build:libraries && bun run typecheck && bun run lint && bun run check:packages && bun run check:release && bun run smoke && bun run test:look && bun run test",
-    "test:look": "bun test examples/look/tests/pointer-dials.test.ts"
+    "test:look": "bun test examples/look/tests/pointer-dials.test.ts examples/look/tests/payload.test.ts"
   },
   "dependencies": {
     "@rig-c/play": "1.20.0",

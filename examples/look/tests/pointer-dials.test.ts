@@ -8,6 +8,8 @@ import {
   pointerToNormalized, stepCriticallyDampedSpring2D, HEAD_SPRING_OMEGA0,
 } from '../pointer-dials.ts';
 
+import { readLookDials } from '../look.ts';
+
 const text = readFileSync(new URL('../rig/skeleton.model.json', import.meta.url), 'utf8');
 const names = { yaw: 'yaw_dial', pitch: 'pitch_dial', roll: 'roll_dial', body: 'body_dial', gazeX: 'gaze_x_dial', gazeY: 'gaze_y_dial' } as const;
 const doc = () => readModel(text, 'public look fixture');
@@ -28,7 +30,7 @@ test('PD01 normalization: offset CSS rectangle, Y-up, clamped edges and absent a
 
 test('PD02 real compiled reader: six declared bands, caller-provided bone names', () => {
   const bindings = readPointerDialBindings(doc(), names);
-  assert.deepEqual(Object.values(bindings).map(x => x.range), [[-15, 15], [-12, 12], [-8, 8], [-6, 6], [-1, 1], [-1, 1]]);
+  assert.deepEqual(Object.values(bindings).map(x => x.range), [[-15, 15], [-12, 12], [-8, 8], [-15, 15], [-1, 1], [-1, 1]]);
   assert.equal(bindings.yaw?.channel, 'rotation');
   const renamed = text.replaceAll('"yaw_dial"', '"horizontal_control"');
   assert.deepEqual(readPointerDialBindings(readModel(renamed), { yaw: 'horizontal_control', pitch: names.pitch }).yaw?.range, [-15, 15]);
@@ -119,10 +121,36 @@ test('PD08 apply: correct declared channels, immediate eyes, spring head, roll a
   close(locals.get(names.pitch)!.x, -12);
   assert.equal(locals.get(names.pitch)!.rotation, 0);
   close(locals.get(names.roll)!.rotation, 8);
-  close(locals.get(names.body)!.rotation, 6);
+  close(locals.get(names.body)!.rotation, 15);
   follow.clearPointer(); const cleared = follow.step(1 / 60);
   assert.equal(cleared.values.gazeX, 0); assert.equal(cleared.values.gazeY, 0);
   assert.ok(cleared.values.yaw! > 0);
   const neutral = follow.step(2);
   close(neutral.values.yaw!, 0);
+});
+
+
+test('LOOK45 page maps the producer body dial to its original six-degree excursion', () => {
+  const result = readLookDials(doc());
+  assert.ok(result.ok);
+  assert.deepEqual(result.dials.modelThresholds.body, [-15, 15]);
+  assert.deepEqual(result.dials.pageClamp.body, [-6, 6]);
+  assert.equal(result.dials.B, 6);
+  const follow = new PointerDials(result.dials.bindings);
+  follow.setPointer(1, 0);
+  close(follow.step(2).values.body!, 6);
+  follow.setPointer(-1, 0);
+  close(follow.step(2).values.body!, -6);
+  // A bypass that sends the full producer range must fail the page ceiling.
+  const bypass = new PointerDials(readPointerDialBindings(doc(), names));
+  bypass.setPointer(1, 0);
+  assert.ok(bypass.step(2).values.body! > result.dials.B);
+});
+
+
+test('LOOK45 direction comes from posed world motion when the local nose track is stationary', () => {
+  const result = readLookDials(doc());
+  assert.ok(result.ok);
+  assert.equal(result.dials.yawSign, -1);
+  assert.equal(result.dials.pitchSign, -1);
 });
