@@ -10,9 +10,11 @@ export interface DepthPayload {
 export interface ProducerReceipt {
   schema: string;
   producer: { parts: string; rigc: string; core: string };
+  source: { repository: string; commit: string; directory: string; config: string };
   configSHA256: string;
-  inputs: Array<{ id: string; sha256: string }>;
+  inputs: Array<{ id: string; path: string; sha256: string }>;
   outputs: Array<{ file: string; sha256: string }>;
+  rebuildCommand: string;
 }
 const requiredFiles = ['skeleton.atlas', 'skeleton.json', 'skeleton.model.json', 'skeleton.png'];
 const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -35,7 +37,32 @@ export function checkLookPayload(dir: string, receipt: ProducerReceipt): void {
     need(/^\d+\.\d+\.\d+$/.test(receipt.producer[key]), 'LOOK_PRODUCER_RECEIPT', `invalid ${key} version`);
   }
   const hash = /^[0-9a-f]{64}$/;
-  need(hash.test(receipt.configSHA256) && receipt.inputs.length > 0 && receipt.inputs.every(i => hash.test(i.sha256)), 'LOOK_PRODUCER_RECEIPT', 'missing config/input hashes');
+  const commitPin = /^[0-9a-f]{40}$/;
+  need(
+    Boolean(receipt.source) &&
+      receipt.source.repository === 'https://github.com/rig-c/examples' &&
+      commitPin.test(receipt.source.commit) &&
+      receipt.source.directory === 'look' &&
+      receipt.source.config === 'config.json' &&
+      typeof receipt.rebuildCommand === 'string' &&
+      receipt.rebuildCommand.includes(receipt.source.commit),
+    'LOOK_PRODUCER_RECEIPT',
+    'missing or invalid public rig-c/examples source recipe pin',
+  );
+  need(
+    hash.test(receipt.configSHA256) &&
+      receipt.inputs.length > 0 &&
+      receipt.inputs.every(
+        i =>
+          typeof i.path === 'string' &&
+          i.path.length > 0 &&
+          !i.path.startsWith('/') &&
+          !i.path.includes('..') &&
+          hash.test(i.sha256),
+      ),
+    'LOOK_PRODUCER_RECEIPT',
+    'missing config/input paths or hashes',
+  );
   need(JSON.stringify(receipt.outputs.map(o => o.file).sort()) === JSON.stringify(requiredFiles), 'LOOK_PRODUCER_RECEIPT', 'expected exactly the four producer files');
   for (const output of receipt.outputs) {
     need(hash.test(output.sha256) && digest(readFileSync(join(dir, output.file))) === output.sha256, 'LOOK_PRODUCER_BYTES', `hash mismatch for ${output.file}`);
