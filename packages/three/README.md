@@ -119,3 +119,4 @@ float storage and transformed geometry, same-browser CanvasRenderer pictures,
 planted picture faults, exact pose parity, fixed updates, native held uploads,
 shared page lifetime, buffer deletion, package contents and installed exports.
 The release pipeline registers this package independently of the other hosts.
+The router skill for an agent is [`skills/rig-three/SKILL.md`](skills/rig-three/SKILL.md).
