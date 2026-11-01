@@ -2,6 +2,12 @@
   <img src="https://raw.githubusercontent.com/rig-c/adapters/main/packages/phaser/assets/banner.svg" alt="@rig-c/phaser — Play a rig-c model inside a Phaser 4.2+ WebGL scene through @rig-c/play" width="100%" />
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@rig-c/phaser"><img src="https://img.shields.io/npm/v/@rig-c/phaser.svg?style=flat-square&color=FF6B4A" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@rig-c/phaser"><img src="https://img.shields.io/npm/dm/@rig-c/phaser.svg?style=flat-square&color=EC4899" alt="npm downloads" /></a>
+  <a href="https://github.com/rig-c/adapters/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-38BDF8.svg?style=flat-square" alt="license" /></a>
+</p>
+
 # @rig-c/phaser
 
 Play a rig that `rigc build` wrote inside a Phaser 4.2+ WebGL scene through `@rig-c/play`'s core, with no Spine runtime. Requires `@rig-c/play >=1.20.0 <2` for its public live-frame contract.

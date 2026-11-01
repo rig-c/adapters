@@ -2,6 +2,12 @@
   <img src="https://raw.githubusercontent.com/rig-c/adapters/main/packages/three/assets/banner.svg" alt="@rig-c/three — Draw a rig-c model in a native Three.js scene through @rig-c/play" width="100%" />
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@rig-c/three"><img src="https://img.shields.io/npm/v/@rig-c/three.svg?style=flat-square&color=FF6B4A" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@rig-c/three"><img src="https://img.shields.io/npm/dm/@rig-c/three.svg?style=flat-square&color=EC4899" alt="npm downloads" /></a>
+  <a href="https://github.com/rig-c/adapters/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-38BDF8.svg?style=flat-square" alt="license" /></a>
+</p>
+
 # @rig-c/three
 
 Draw a rig-c model in a native Three.js scene through `@rig-c/play`. `ThreeRig`
