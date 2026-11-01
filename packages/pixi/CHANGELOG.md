@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/rig-c/adapters/compare/pixi-v0.1.6...pixi-v0.1.7) (2026-11-01)
+
+
+### Bug Fixes
+
+* show the shared banner ([#112](https://github.com/rig-c/adapters/issues/112)) ([1bed128](https://github.com/rig-c/adapters/commit/1bed1281f3b760d1a803eb652eeb3069a687b84c)), closes [#111](https://github.com/rig-c/adapters/issues/111)
+
 ## [0.1.6](https://github.com/rig-c/adapters/compare/pixi-v0.1.5...pixi-v0.1.6) (2026-10-28)
 
 
