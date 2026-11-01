@@ -2,6 +2,13 @@
   <img src="https://raw.githubusercontent.com/rig-c/adapters/main/assets/banner.svg" alt="rig-c/adapters — Play a rig-c compiled model inside a web engine through @rig-c/play" width="100%" />
 </p>
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@rig-c/pixi"><img src="https://img.shields.io/npm/v/@rig-c/pixi.svg?style=flat-square&color=FF6B4A&label=%40rig-c%2Fpixi" alt="@rig-c/pixi npm version" /></a>
+  <a href="https://www.npmjs.com/package/@rig-c/phaser"><img src="https://img.shields.io/npm/v/@rig-c/phaser.svg?style=flat-square&color=FF6B4A&label=%40rig-c%2Fphaser" alt="@rig-c/phaser npm version" /></a>
+  <a href="https://www.npmjs.com/package/@rig-c/three"><img src="https://img.shields.io/npm/v/@rig-c/three.svg?style=flat-square&color=FF6B4A&label=%40rig-c%2Fthree" alt="@rig-c/three npm version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-38BDF8.svg?style=flat-square" alt="license" /></a>
+</p>
+
 # rig-c adapters
 
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
