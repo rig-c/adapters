@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/rig-c/adapters/compare/pixi-v0.1.8...pixi-v0.2.0) (2026-11-01)
+
+
+### Features
+
+* ship an agent skill in each host package ([#123](https://github.com/rig-c/adapters/issues/123)) ([17509a1](https://github.com/rig-c/adapters/commit/17509a12a738749d94ecf6d5979340411f2080b1)), closes [#121](https://github.com/rig-c/adapters/issues/121)
+
 ## [0.1.8](https://github.com/rig-c/adapters/compare/pixi-v0.1.7...pixi-v0.1.8) (2026-11-01)
 
 
