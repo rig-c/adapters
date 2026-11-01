@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-38BDF8.svg?style=flat-square" alt="license" /></a>
 </p>
 
-# rig-c adapters
+# rig-c/adapters
 
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your
 game already uses.
