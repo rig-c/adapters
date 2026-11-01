@@ -65,3 +65,4 @@ player mutation. This includes the cost of preserving the last-drawn values.
 Keep `skeleton.model.json` and the image pages emitted by `rigc build` together.
 See [`packages/pixi` in the repository](https://github.com/rig-c/adapters/tree/main/packages/pixi) for the demo, parity tests
 and adding another host.
+The router skill for an agent is [`skills/rig-pixi/SKILL.md`](skills/rig-pixi/SKILL.md).

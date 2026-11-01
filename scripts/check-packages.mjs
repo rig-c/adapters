@@ -6,13 +6,14 @@ import { publishable, root, run, workspaces } from './workspaces.mjs';
 import { assertPublishable } from './release-plan.mjs';
 
 export function assertTarball(pkg, listing) {
+  const skillPath = `skills/${pkg.name.replace('@rig-c/', 'rig-')}/SKILL.md`;
   for (const entry of listing.files) {
     // npm always adds package.json. This metadata file is required for installation.
     if (entry.path === 'package.json') continue;
-    if (entry.path.startsWith('dist/') || ['README.md', 'LICENSE', 'NOTICE'].includes(entry.path)) continue;
+    if (entry.path.startsWith('dist/') || ['README.md', 'LICENSE', 'NOTICE', skillPath].includes(entry.path)) continue;
     throw new Error(`PACK_ALLOWLIST: ${pkg.name} contains unexpected path "${entry.path}"`);
   }
-  for (const required of ['package.json', 'dist/index.js', 'dist/index.d.ts', 'README.md', 'LICENSE', 'NOTICE']) {
+  for (const required of ['package.json', 'dist/index.js', 'dist/index.d.ts', 'README.md', 'LICENSE', 'NOTICE', skillPath]) {
     assert(listing.files.some((file) => file.path === required), `PACK_REQUIRED: ${pkg.name} lacks ${required}`);
   }
 }
@@ -35,6 +36,12 @@ for (const pkg of packages) {
   }
   console.log(`[bar1:pack] ${pkg.name}: ${listing.files.map((entry) => entry.path).join(', ')}; PASS`);
   console.log(`[bar4:tarball-runtime] ${pkg.name}: prohibited runtime/private imports (empty); PASS`);
+  const skillPath = `skills/${pkg.name.replace('@rig-c/', 'rig-')}/SKILL.md`;
+  assert.throws(
+    () => assertTarball(pkg, { files: listing.files.filter((file) => file.path !== skillPath) }),
+    new RegExp(`PACK_REQUIRED.*${skillPath.replace(/\//g, '\\/')}`),
+  );
+  console.log(`[bar1:skill-mutant] ${pkg.name}: PACK_REQUIRED rejected missing ${skillPath}; RED as required`);
   const temp = mkdtempSync(join(tmpdir(), 'adapters-pack-mutant-'));
   try {
     cpSync(pkg.dir, temp, { recursive: true });

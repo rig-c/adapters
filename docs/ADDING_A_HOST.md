@@ -10,7 +10,7 @@ The root stays private and owns CI, public fixture building and the demo.
    Playwright discovers `packages/*/tests/*.spec.ts`; no workflow edit is needed.
 2. Add `package.json`: name `@rig-c/<host>`, independent starting version, ESM,
    typed `.` export pointing at `dist/index.js` and `dist/index.d.ts`, `files`
-   containing only `dist`, README, LICENSE and NOTICE, `sideEffects: false`.
+   containing only `dist`, `skills`, README, LICENSE and NOTICE (`skills/rig-<host>/SKILL.md`), `sideEffects: false`.
    Use peers for the engine and @rig-c/play; shared helpers are a development
    workspace dependency, bundled by the root library build, never a runtime
    dependency. Copy the licence and write host usage/notice files.
