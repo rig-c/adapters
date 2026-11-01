@@ -93,15 +93,26 @@ explicit depths measured from their source sheets. Body motion uses the supporte
 under soft occluders and uses the supported `yield_refused` option to let the
 matching neck layer show through refused garment pixels and their rim.
 
-[`rig/producer.json`](rig/producer.json) records producer versions, config/input
-hashes and the hashes of the four unmodified emitted files. `bun scripts/check-look-payload.ts`
-checks byte identity and the actual depth carriers (`faceshift`, `face_surface`,
-`bodyshift`, `body_rear_shift`, `topwear_surface`) plus nonzero face/body deform
-tracks. The current producer uses these names rather than `turn*` bones.
-The payload tests plant missing carriers/deforms and changed digests.
+[`rig/producer.json`](rig/producer.json) records the public `rig-c/examples`
+source pin (`look/` at `98eec68a57745472963e88083264e76e7d6c0e93`), producer versions, config
+hash, the 120 relative input paths and hashes, and the hashes of the four
+unmodified emitted files. `bun scripts/check-look-payload.ts` checks the public
+recipe pin, input paths/hashes, byte identity of the four emitted files, and the
+actual depth carriers (`faceshift`, `face_surface`, `bodyshift`,
+`body_rear_shift`, `topwear_surface`) plus nonzero face/body deform tracks. The
+current producer uses these names rather than `turn*` bones. The payload tests
+plant missing carriers/deforms, missing public recipe paths and changed digests.
 
-Source art and config are not distributed, so a public run cannot repeat the
-producer build; its byte check is not a public cold-rebuild claim. A private
-clean producer run records the emitted bytes; repeating that build requires the
-private inputs. The producer's geometry gates and
+The source painting, See-through layers (with scalar depth maps),
+`animations.json` and `config.json` are published under `look/` in
+[`rig-c/examples`](https://github.com/rig-c/examples). To cold-rebuild the four
+emitted files in [`rig/`](rig/) from a clean scratch directory with one public
+command:
+
+```sh
+WORK=$(mktemp -d) && curl -fsSL https://codeload.github.com/rig-c/examples/tar.gz/98eec68a57745472963e88083264e76e7d6c0e93 | tar -xz -C "$WORK" --strip-components=1 && cd "$WORK" && printf '{"private":true,"type":"module","dependencies":{"@rig-c/parts":"1.79.1","rig-c":"2.81.1"}}\n' > package.json && bun install && cd look && bun ../node_modules/@rig-c/parts/cli.ts assemble --source painting.png --full layers/full --head layers/head --config config.json --out assembled && bun ../node_modules/@rig-c/parts/cli.ts rig --config config.json --parts assembled/rig --out candidate && bun ../node_modules/.bin/rigc build --rig candidate/rig.json --motion candidate/motion.json --out built --profile rig-play --pack --page-edges free --pack-shape polygon
+```
+
+`built/skeleton.{atlas,json,model.json,png}` reproduces the four committed files
+in `examples/look/rig/` byte for byte. The producer's geometry gates and
 browser controls do not replace visual acceptance of setup and motion extremes.
