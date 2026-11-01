@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/rig-c/adapters/compare/three-v0.1.2...three-v0.1.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* show the shared banner ([#112](https://github.com/rig-c/adapters/issues/112)) ([1bed128](https://github.com/rig-c/adapters/commit/1bed1281f3b760d1a803eb652eeb3069a687b84c)), closes [#111](https://github.com/rig-c/adapters/issues/111)
+
 ## [0.1.2](https://github.com/rig-c/adapters/compare/three-v0.1.1...three-v0.1.2) (2026-10-27)
 
 
