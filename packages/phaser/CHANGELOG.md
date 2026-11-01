@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/rig-c/adapters/compare/phaser-v0.1.2...phaser-v0.1.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **readme:** show the npm badges ([#117](https://github.com/rig-c/adapters/issues/117)) ([ff4505a](https://github.com/rig-c/adapters/commit/ff4505aa67510b60f39fb02a0c9700fe70f9a87d)), closes [#116](https://github.com/rig-c/adapters/issues/116)
+* show the shared banner ([#112](https://github.com/rig-c/adapters/issues/112)) ([1bed128](https://github.com/rig-c/adapters/commit/1bed1281f3b760d1a803eb652eeb3069a687b84c)), closes [#111](https://github.com/rig-c/adapters/issues/111)
+
 ## [0.1.2](https://github.com/rig-c/adapters/compare/phaser-v0.1.1...phaser-v0.1.2) (2026-10-27)
 
 
