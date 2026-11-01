@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rig-c/adapters/main/assets/banner.svg" alt="rig-c/adapters — Play a rig-c compiled model inside a web engine through @rig-c/play" width="100%" />
+</p>
+
 # rig-c adapters
 
 Adapters for rig-c: a rig that rig-c built, playing inside the engine or renderer your

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rig-c/adapters/main/packages/phaser/assets/banner.svg" alt="@rig-c/phaser — Play a rig-c model inside a Phaser 4.2+ WebGL scene through @rig-c/play" width="100%" />
+</p>
+
 # @rig-c/phaser
 
 Play a rig that `rigc build` wrote inside a Phaser 4.2+ WebGL scene through `@rig-c/play`'s core, with no Spine runtime. Requires `@rig-c/play >=1.20.0 <2` for its public live-frame contract.

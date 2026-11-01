@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rig-c/adapters/main/packages/three/assets/banner.svg" alt="@rig-c/three — Draw a rig-c model in a native Three.js scene through @rig-c/play" width="100%" />
+</p>
+
 # @rig-c/three
 
 Draw a rig-c model in a native Three.js scene through `@rig-c/play`. `ThreeRig`

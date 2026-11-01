@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rig-c/adapters/main/packages/pixi/assets/banner.svg" alt="@rig-c/pixi — PixiJS 8 adapter for rig-c model documents, posed through @rig-c/play" width="100%" />
+</p>
+
 # @rig-c/pixi
 
 PixiJS 8 adapter for rig-c model documents, posed through @rig-c/play. MIT.
