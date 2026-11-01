@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/rig-c/adapters/compare/pixi-v0.1.7...pixi-v0.1.8) (2026-11-01)
+
+
+### Bug Fixes
+
+* **readme:** show the npm badges ([#117](https://github.com/rig-c/adapters/issues/117)) ([ff4505a](https://github.com/rig-c/adapters/commit/ff4505aa67510b60f39fb02a0c9700fe70f9a87d)), closes [#116](https://github.com/rig-c/adapters/issues/116)
+
 ## [0.1.7](https://github.com/rig-c/adapters/compare/pixi-v0.1.6...pixi-v0.1.7) (2026-11-01)
 
 
