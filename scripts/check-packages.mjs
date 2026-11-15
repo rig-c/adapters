@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { publishable, root, run, workspaces } from './workspaces.mjs';
+import { packListing, publishable, root, run, workspaces } from './workspaces.mjs';
 import { assertPublishable } from './release-plan.mjs';
 
 export function assertTarball(pkg, listing) {
@@ -20,7 +20,7 @@ export function assertTarball(pkg, listing) {
 const packages = publishable();
 assert(packages.length > 0, 'PACK_NO_PACKAGES: publishable workspace absent');
 for (const pkg of packages) {
-  const listing = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: pkg.dir }))[0];
+  const listing = packListing(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: pkg.dir }), pkg.name);
   assertTarball(pkg, listing);
   const packedPackage = JSON.parse(readFileSync(join(pkg.dir, 'package.json'), 'utf8'));
   for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
@@ -48,7 +48,7 @@ for (const pkg of packages) {
     const mutant = { ...packedPackage, files: [...packedPackage.files, 'tests/planted.txt'] };
     writeFileSync(join(temp, 'tests/planted.txt'), 'Must never ship.');
     writeFileSync(join(temp, 'package.json'), JSON.stringify(mutant));
-    const mutantListing = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: temp }))[0];
+    const mutantListing = packListing(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: temp }), JSON.parse(readFileSync(join(temp, 'package.json'), 'utf8')).name);
     assert.throws(() => assertTarball(pkg, mutantListing), /PACK_ALLOWLIST.*tests\/planted.txt/);
     console.log(`[bar1:mutant] ${pkg.name}: PACK_ALLOWLIST rejected tests/planted.txt; RED as required`);
   } finally { rmSync(temp, { recursive: true, force: true }); }
@@ -61,7 +61,7 @@ for (const pkg of workspaces().filter((item) => item.private)) {
 const temp = mkdtempSync(join(tmpdir(), 'adapters-private-pack-'));
 try {
   writeFileSync(join(temp, 'package.json'), JSON.stringify({ name: '@rig-c/private-pack-probe', version: '0.0.0', private: true }));
-  const listing = JSON.parse(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: temp }))[0];
+  const listing = packListing(run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: temp }), JSON.parse(readFileSync(join(temp, 'package.json'), 'utf8')).name);
   assert(listing.files.some((file) => file.path === 'package.json'));
   console.log('[bar1:refuted] npm pack --dry-run accepts private:true; private blocks publication, not local tarball creation. Publishing pipeline rejects private packages before invoking npm.');
 } finally { rmSync(temp, { recursive: true, force: true }); }

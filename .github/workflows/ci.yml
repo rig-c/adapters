@@ -38,6 +38,7 @@ jobs:
       - name: Check bundled Playwright browsers and rejection controls
         run: bun scripts/check-playwright-image.mjs
       - run: bun run check:release
+      - run: bun scripts/check-host-scaffold.mjs
       - run: bun run smoke
       - name: Prepare immutable Pixi origin baseline
         run: |
@@ -56,3 +57,28 @@ jobs:
           name: test-results
           path: test-results/
           if-no-files-found: ignore
+
+  release-path:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - name: Use the publication npm
+        run: |
+          npm install -g npm@12.2.2
+          npm --version
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/check-pack-json.mjs
+      - run: bun run check:release
+      - run: bun run build:libraries
+      - run: bun run check:packages
+      - name: Pack every published host without publishing
+        run: |
+          for package in pixi phaser three; do
+            (cd "packages/$package" && npm pack --dry-run --json --ignore-scripts)
+          done

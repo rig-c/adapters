@@ -24,8 +24,9 @@ game already uses.
 | Native engine bridges | Planned |
 
 Each host is independently versioned in `packages/<host>`. The private shared
-workspace is bundled into host libraries and is never published. One manifest
-release pipeline discovers every host; no engine is added merely by listing it.
+workspace is bundled into host libraries and is never published. Library and
+package checks discover every host; new release tag prefixes need explicit registration.
+See [Releasing](RELEASING.md) for the signed release PR and tower-pushed tag flow.
 Each published host package ships its own agent skill (`skills/rig-pixi/SKILL.md`, `skills/rig-phaser/SKILL.md`, `skills/rig-three/SKILL.md`).
 
 ## PixiJS usage
