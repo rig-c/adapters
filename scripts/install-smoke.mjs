@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
-import { publishable, root, run } from './workspaces.mjs';
+import { packListing, publishable, root, run } from './workspaces.mjs';
 
 run('bun', ['run', 'fetch-assets']);
 for (const pkg of publishable()) {
@@ -13,7 +13,7 @@ for (const pkg of publishable()) {
   let browser;
   try {
     const packDir = join(temp, 'tarballs'); mkdirSync(packDir);
-    const listing = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', packDir], { cwd: pkg.dir }))[0];
+    const listing = packListing(run('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', packDir], { cwd: pkg.dir }), pkg.name);
     const consumer = join(temp, 'consumer'); mkdirSync(consumer);
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'adapter-installed-smoke', private: true, type: 'module' }));
     const peers = Object.entries(pkg.peerDependencies).map(([name, version]) => `${name}@${version}`);
